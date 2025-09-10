@@ -67,6 +67,23 @@ class VideoDownloader:
         Returns:
             Credential对象，如果无法加载则返回None
         """
+        # 创建日志记录器（确保日志配置）
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler('logs.txt'),
+                logging.StreamHandler()
+            ]
+        )
+        logger = logging.getLogger('CredentialLoader')
+        
+        # 记录凭据加载开始
+        if config_path:
+            logger.info(f"🔑 开始加载凭据，配置文件: {config_path}")
+        else:
+            logger.info("🔑 开始加载凭据，仅使用环境变量")
+        
         # 尝试从环境变量加载
         sessdata = os.getenv('BILI_SESSDATA')
         bili_jct = os.getenv('BILI_JCT')
@@ -74,22 +91,95 @@ class VideoDownloader:
         dedeuserid = os.getenv('BILI_DEDEUSERID')
         ac_time_value = os.getenv('BILI_AC_TIME_VALUE')
         
+        # 记录环境变量状态
+        env_sources = []
+        if sessdata:
+            env_sources.append('SESSDATA')
+        if bili_jct:
+            env_sources.append('bili_jct')
+        if buvid3:
+            env_sources.append('buvid3')
+        if dedeuserid:
+            env_sources.append('DedeUserID')
+        if ac_time_value:
+            env_sources.append('ac_time_value')
+        
+        if env_sources:
+            logger.info(f"🌿 从环境变量获取: {', '.join(env_sources)}")
+        else:
+            logger.info("🌿 未找到环境变量凭据")
+        
         # 尝试从配置文件加载
+        file_sources = []
+        original_values = {
+            'sessdata': sessdata,
+            'bili_jct': bili_jct,
+            'buvid3': buvid3,
+            'dedeuserid': dedeuserid,
+            'ac_time_value': ac_time_value
+        }
+        
         if config_path and Path(config_path).exists():
             try:
                 with open(config_path, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                    sessdata = config.get('SESSDATA', sessdata)
-                    bili_jct = config.get('bili_jct', bili_jct)
-                    buvid3 = config.get('buvid3', buvid3)
-                    dedeuserid = config.get('DedeUserID', dedeuserid)
-                    ac_time_value = config.get('ac_time_value', ac_time_value)
+                    
+                    # 检查每个字段是否被配置文件覆盖
+                    new_sessdata = config.get('SESSDATA', sessdata)
+                    if new_sessdata != sessdata:
+                        file_sources.append('SESSDATA')
+                        sessdata = new_sessdata
+                    
+                    new_bili_jct = config.get('bili_jct', bili_jct)
+                    if new_bili_jct != bili_jct:
+                        file_sources.append('bili_jct')
+                        bili_jct = new_bili_jct
+                    
+                    new_buvid3 = config.get('buvid3', buvid3)
+                    if new_buvid3 != buvid3:
+                        file_sources.append('buvid3')
+                        buvid3 = new_buvid3
+                    
+                    new_dedeuserid = config.get('DedeUserID', dedeuserid)
+                    if new_dedeuserid != dedeuserid:
+                        file_sources.append('DedeUserID')
+                        dedeuserid = new_dedeuserid
+                    
+                    new_ac_time_value = config.get('ac_time_value', ac_time_value)
+                    if new_ac_time_value != ac_time_value:
+                        file_sources.append('ac_time_value')
+                        ac_time_value = new_ac_time_value
+                
+                if file_sources:
+                    logger.info(f"📄 从配置文件更新: {', '.join(file_sources)}")
+                else:
+                    logger.info("📄 配置文件未提供新凭据")
+                    
             except Exception as e:
+                logger.error(f"⚠️  配置文件加载失败: {e}")
                 print(f"⚠️  配置文件加载失败: {e}")
+        elif config_path:
+            logger.warning(f"📄 配置文件不存在: {config_path}")
         
         # 检查必需的凭据
         if not sessdata:
+            logger.warning("❌ 未找到 SESSDATA，无法创建凭据")
             return None
+        
+        # 记录最终凭据状态（脱敏显示）
+        credential_info = []
+        if sessdata:
+            credential_info.append(f"SESSDATA: {sessdata[:8]}***")
+        if bili_jct:
+            credential_info.append(f"bili_jct: {bili_jct[:8]}***")
+        if buvid3:
+            credential_info.append(f"buvid3: {buvid3[:8]}***")
+        if dedeuserid:
+            credential_info.append(f"DedeUserID: {dedeuserid}")
+        if ac_time_value:
+            credential_info.append(f"ac_time_value: {ac_time_value[:8]}***")
+        
+        logger.info(f"🔐 最终凭据组成: {', '.join(credential_info)}")
             
         try:
             # 创建凭据对象
@@ -100,8 +190,10 @@ class VideoDownloader:
                 dedeuserid=dedeuserid or "",
                 ac_time_value=ac_time_value or ""
             )
+            logger.info("✅ 凭据对象创建成功")
             return credential
         except Exception as e:
+            logger.error(f"❌ 凭据创建失败: {e}")
             print(f"⚠️  凭据创建失败: {e}")
             return None
     
