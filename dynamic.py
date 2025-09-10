@@ -470,8 +470,12 @@ class BilibiliDynamicManager:
         
         Args:
             uid: 用户ID
-            limit: 显示动态数量限制
+            limit: 显示动态数量限制 (默认: 100)
         """
+        # 设置默认限制为100条
+        if limit is None:
+            limit = 100
+        
         # 获取用户信息
         user_info = await self.get_user_info(uid)
         if not user_info:
@@ -481,21 +485,57 @@ class BilibiliDynamicManager:
         username = user_info.get('name', 'Unknown')
         print(f"\n用户：{username} (UID: {uid})")
         
-        # 获取动态列表（只获取第一页用于预览）
+        # 获取动态列表（支持多页获取）
         try:
             user_obj = user.User(uid, credential=self.credential)
-            dynamics_data = await user_obj.get_dynamics_new(offset="")
+            all_dynamics = []
+            offset = ""
+            page = 1
             
-            if not dynamics_data.get('items'):
+            print(f"📦 正在获取最近 {limit} 条动态...")
+            
+            while len(all_dynamics) < limit:
+                dynamics_data = await user_obj.get_dynamics_new(offset=offset)
+                
+                if not dynamics_data.get('items'):
+                    break
+                
+                dynamics_list = dynamics_data['items']
+                all_dynamics.extend(dynamics_list)
+                
+                # 如果是第一页且已满足需求，直接跳出
+                if page == 1 and len(dynamics_list) >= limit:
+                    break
+                
+                # 检查是否有下一页
+                if not dynamics_data.get('offset') or len(dynamics_list) == 0:
+                    break
+                
+                # 显示进度（仅在需要多页时）
+                if page == 1 and len(dynamics_list) < limit:
+                    print(f"📄 第1页已获取 {len(dynamics_list)} 条，继续获取更多...")
+                elif page > 1:
+                    print(f"📄 第{page}页已获取，累计 {len(all_dynamics)} 条...")
+                
+                offset = dynamics_data['offset']
+                page += 1
+                
+                # 避免请求过快
+                await asyncio.sleep(0.3)
+                
+                # 安全限制：最多获取10页
+                if page > 10:
+                    self.logger.warning(f"已达到最大页数限制(10页)，停止获取")
+                    break
+            
+            # 截取所需数量
+            dynamics_list = all_dynamics[:limit]
+            
+            if not dynamics_list:
                 print("❌ 未找到任何动态")
                 return
             
-            dynamics_list = dynamics_data['items']
-            
-            if limit:
-                dynamics_list = dynamics_list[:limit]
-            
-            print(f"最近 {len(dynamics_list)} 条动态\n")
+            print(f"✅ 成功获取 {len(dynamics_list)} 条动态\n")
             
             for i, dynamic_info in enumerate(dynamics_list, 1):
                 dynamic_type = dynamic_info.get('type', 'UNKNOWN')
