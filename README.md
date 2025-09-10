@@ -76,6 +76,8 @@ cp credentials.json.example credentials.json
 ```
 
 2. **获取登录凭据**
+   > 📖 **详细教程**: [bilibili-api 官方获取凭证指南](https://nemo2011.github.io/bilibili-api/#/get-credential)
+   
    - 登录 [bilibili.com](https://www.bilibili.com)
    - 按 F12 打开开发者工具
    - 切换到 Network 选项卡
