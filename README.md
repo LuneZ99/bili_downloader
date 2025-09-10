@@ -80,9 +80,9 @@ cp credentials.json.example credentials.json
    
    - 登录 [bilibili.com](https://www.bilibili.com)
    - 按 F12 打开开发者工具
-   - 切换到 Network 选项卡
-   - 刷新页面，找到任意请求
-   - 在请求头中复制以下 Cookie 值：
+   - 在工具窗口上方找到 **Application** 选项卡
+   - 在左侧找到 **Storage/Cookies**，并选中任一B站域名
+   - 在右侧找到并复制以下 Cookie 值：
      - `SESSDATA`
      - `bili_jct`
      - `buvid3`
