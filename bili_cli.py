@@ -22,7 +22,7 @@ python bili_cli.py download-series <合集ID> [--type series|season] [--dir 目�
 import asyncio
 import argparse
 import os
-from video import BilibiliVideoManager
+from video import BilibiliVideoManager, VideoDownloader
 from dynamic import BilibiliDynamicManager
 
 
@@ -45,7 +45,8 @@ def main():
   %(prog)s download-series 123456 --dir /tmp             # 下载整个合集
   
   # 动态相关
-  %(prog)s list-dynamics 477317922 --limit 10            # 列出用户最近动态
+  %(prog)s list-dynamics 477317922                       # 列出用户最近100条动态
+  %(prog)s list-dynamics 477317922 --limit 10            # 列出用户最近10条动态
   %(prog)s download-dynamics 477317922                   # 下载用户所有动态和评论
   %(prog)s download-dynamics 477317922 --no-comments     # 下载动态不含评论
   %(prog)s download-single-dynamic 123456789             # 下载单个动态和评论
@@ -95,7 +96,7 @@ def main():
     # list-dynamics 子命令
     parser_list_dynamics = subparsers.add_parser('list-dynamics', help='列出用户最近的动态')
     parser_list_dynamics.add_argument('uid', type=int, help='用户UID')
-    parser_list_dynamics.add_argument('--limit', '-l', type=int, help='显示动态数量限制')
+    parser_list_dynamics.add_argument('--limit', '-l', type=int, help='显示动态数量限制 (默认: 100)')
     
     # download-dynamics 子命令
     parser_download_dynamics = subparsers.add_parser('download-dynamics', help='下载用户所有动态和评论')
