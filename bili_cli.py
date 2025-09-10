@@ -22,8 +22,8 @@ python bili_cli.py download-series <合集ID> [--type series|season] [--dir 目�
 import asyncio
 import argparse
 import os
-from bili_manager import BilibiliManager
-from bili_downloader import VideoDownloader
+from video import BilibiliVideoManager
+from dynamic import BilibiliDynamicManager
 
 
 def main():
@@ -33,13 +33,22 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
+  # 视频相关
   %(prog)s list-videos 477317922                         # 列出用户视频
   %(prog)s download-video BV1FQbPzKEA8                   # 下载单个视频
   %(prog)s download-video BV1FQbPzKEA8 --dir /tmp        # 下载到指定目录
   %(prog)s download-user 477317922                       # 下载用户所有视频
+  
+  # 合集相关
   %(prog)s list-series 477317922                         # 列出用户所有合集
   %(prog)s list-series-videos 123456                     # 列出合集中的视频
   %(prog)s download-series 123456 --dir /tmp             # 下载整个合集
+  
+  # 动态相关
+  %(prog)s list-dynamics 477317922 --limit 10            # 列出用户最近动态
+  %(prog)s download-dynamics 477317922                   # 下载用户所有动态和评论
+  %(prog)s download-dynamics 477317922 --no-comments     # 下载动态不含评论
+  %(prog)s download-single-dynamic 123456789             # 下载单个动态和评论
         """
     )
     
@@ -83,6 +92,25 @@ def main():
     parser_download_collection.add_argument('--dir', '-d', default='downloads', help='下载目录 (默认: downloads)')
     parser_download_collection.add_argument('--concurrent', '-c', type=int, default=3, help='最大并发下载数 (默认: 3)')
     
+    # list-dynamics 子命令
+    parser_list_dynamics = subparsers.add_parser('list-dynamics', help='列出用户最近的动态')
+    parser_list_dynamics.add_argument('uid', type=int, help='用户UID')
+    parser_list_dynamics.add_argument('--limit', '-l', type=int, help='显示动态数量限制')
+    
+    # download-dynamics 子命令
+    parser_download_dynamics = subparsers.add_parser('download-dynamics', help='下载用户所有动态和评论')
+    parser_download_dynamics.add_argument('uid', type=int, help='用户UID')
+    parser_download_dynamics.add_argument('--dir', '-d', default='downloads', help='下载目录 (默认: downloads)')
+    parser_download_dynamics.add_argument('--concurrent', '-c', type=int, default=3, help='最大并发下载数 (默认: 3)')
+    parser_download_dynamics.add_argument('--no-comments', action='store_true', help='不包含评论 (默认包含)')
+    parser_download_dynamics.add_argument('--max-comments', type=int, default=-1, help='每个动态最大评论数限制 (-1 表示无限制, 默认: -1)')
+    
+    # download-single-dynamic 子命令
+    parser_download_single_dynamic = subparsers.add_parser('download-single-dynamic', help='下载单个动态和评论')
+    parser_download_single_dynamic.add_argument('dynamic_id', type=int, help='动态ID')
+    parser_download_single_dynamic.add_argument('--dir', '-d', default='downloads', help='下载目录 (默认: downloads)')
+    parser_download_single_dynamic.add_argument('--no-comments', action='store_true', help='不包含评论 (默认包含)')
+    
     args = parser.parse_args()
     
     # 显示画质格式信息
@@ -120,27 +148,50 @@ def main():
     print("-" * 40)
     
     try:
-        # 创建管理器
-        manager = BilibiliManager(
+        # 创建视频管理器
+        video_manager = BilibiliVideoManager(
             download_dir=getattr(args, 'dir', 'downloads'),
             max_concurrent=getattr(args, 'concurrent', 3),
             credential=credential,
             preferred_quality=getattr(args, 'quality', 'auto')
         )
         
+        # 创建动态管理器
+        dynamic_manager = BilibiliDynamicManager(
+            download_dir=getattr(args, 'dir', 'downloads'),
+            max_concurrent=getattr(args, 'concurrent', 3),
+            credential=credential,
+            max_comments=getattr(args, 'max_comments', -1)
+        )
+        
         # 执行命令
         if args.command == 'list-videos':
-            asyncio.run(manager.list_user_videos(args.uid))
+            asyncio.run(video_manager.list_user_videos(args.uid))
         elif args.command == 'download-video':
-            asyncio.run(manager.download_single_video(args.bvid))
+            asyncio.run(video_manager.download_single_video(args.bvid))
         elif args.command == 'download-user':
-            asyncio.run(manager.download_user_videos(args.uid))
+            asyncio.run(video_manager.download_user_videos(args.uid))
         elif args.command == 'list-series':
-            asyncio.run(manager.list_user_collections(args.uid))
+            asyncio.run(video_manager.list_user_collections(args.uid))
         elif args.command == 'list-series-videos':
-            asyncio.run(manager.list_collection_videos(args.series_id, args.type))
+            asyncio.run(video_manager.list_collection_videos(args.series_id, args.type))
         elif args.command == 'download-series':
-            asyncio.run(manager.download_collection_videos(args.series_id, args.type))
+            asyncio.run(video_manager.download_collection_videos(args.series_id, args.type))
+        elif args.command == 'list-dynamics':
+            asyncio.run(dynamic_manager.list_user_dynamics(args.uid, args.limit))
+        elif args.command == 'download-dynamics':
+            include_comments = not args.no_comments
+            asyncio.run(dynamic_manager.download_user_dynamics(
+                args.uid, 
+                include_comments=include_comments,
+                max_comments=args.max_comments
+            ))
+        elif args.command == 'download-single-dynamic':
+            include_comments = not args.no_comments
+            asyncio.run(dynamic_manager.download_single_dynamic(
+                args.dynamic_id, 
+                include_comments=include_comments
+            ))
             
     except KeyboardInterrupt:
         print("\n\n⏹️  操作已中断")
