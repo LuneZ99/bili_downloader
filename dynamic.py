@@ -20,6 +20,8 @@ from bilibili_api import user, comment, dynamic, Credential
 from bilibili_api.comment import CommentResourceType
 from bilibili_api.dynamic import Dynamic
 
+from utils import get_logger
+
 
 class DynamicsCrawler:
     """B站用户动态爬取器"""
@@ -39,17 +41,8 @@ class DynamicsCrawler:
         self.max_comments_per_dynamic = max_comments_per_dynamic
         self.semaphore = asyncio.Semaphore(max_concurrent)
         
-        # 设置日志
-        import logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('logs.txt'),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger('DynamicsCrawler')
+        # 使用统一的日志配置
+        self.logger = get_logger('DynamicsCrawler')
         
         # 统计信息
         self.stats = {
@@ -456,9 +449,8 @@ class BilibiliDynamicManager:
             max_concurrent=max_concurrent,
             max_comments_per_dynamic=max_comments
         )
-        # 使用专门的管理器日志记录器
-        import logging
-        self.logger = logging.getLogger('DynamicManager')
+        # 使用统一的日志配置
+        self.logger = get_logger('DynamicManager')
     
     async def get_user_info(self, uid: int) -> Dict:
         """获取用户信息"""

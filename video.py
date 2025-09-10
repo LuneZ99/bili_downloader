@@ -23,6 +23,8 @@ from bilibili_api import video, HEADERS, Credential, user
 from bilibili_api.video import VideoQuality
 from bilibili_api.channel_series import ChannelSeries, ChannelSeriesType, ChannelOrder
 
+from utils import get_logger
+
 
 class VideoDownloader:
     """B站视频下载器核心类"""
@@ -38,16 +40,8 @@ class VideoDownloader:
         self.credential = credential
         self.preferred_quality = preferred_quality
         
-        # 设置日志
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('logs.txt'),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger('VideoDownloader')
+        # 使用统一的日志配置
+        self.logger = get_logger('VideoDownloader')
         
         # 输出登录状态和画质信息
         if self.credential:
@@ -67,16 +61,8 @@ class VideoDownloader:
         Returns:
             Credential对象，如果无法加载则返回None
         """
-        # 创建日志记录器（确保日志配置）
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('logs.txt'),
-                logging.StreamHandler()
-            ]
-        )
-        logger = logging.getLogger('CredentialLoader')
+        # 使用统一的日志配置
+        logger = get_logger('CredentialLoader')
         
         # 记录凭据加载开始
         if config_path:
@@ -389,8 +375,8 @@ class BilibiliVideoManager:
         
         # 创建视频下载器
         self.downloader = VideoDownloader(credential=credential, preferred_quality=preferred_quality)
-        # 使用专门的管理器日志记录器
-        self.logger = logging.getLogger('VideoManager')
+        # 使用统一的日志配置
+        self.logger = get_logger('VideoManager')
     
     async def get_user_info(self, uid: int) -> Dict:
         """获取用户信息"""
