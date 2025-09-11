@@ -369,7 +369,7 @@ class VideoDownloader:
         """下载单个分P视频和弹幕"""
         try:
             # 生成分P文件名
-            safe_page_title = self._safe_filename_chars(page_title, 100)
+            safe_page_title = self._safe_filename_chars(page_title, 255)
             video_filename = f"P{page_index+1:02d}_{safe_page_title}.mp4"
             video_path = video_folder / video_filename
             
@@ -378,7 +378,8 @@ class VideoDownloader:
                 print(f"分P视频已存在: {video_filename}")
                 # 如果视频存在但弹幕不存在，仍然下载弹幕
                 if download_danmaku:
-                    danmaku_filename = f"P{page_index+1:02d}_{safe_page_title}_danmaku.jsonl"
+                    safe_page_title_danmaku = self._safe_filename_chars(page_title, 255)
+                    danmaku_filename = f"P{page_index+1:02d}_{safe_page_title_danmaku}_danmaku.jsonl"
                     danmaku_path = video_folder / danmaku_filename
                     if not danmaku_path.exists():
                         await self._download_page_danmaku(v, page_index, page_title, video_folder)
@@ -468,7 +469,7 @@ class VideoDownloader:
             special_danmakus = await self.get_video_special_danmakus(v, page_index)
             
             # 生成弹幕文件名
-            safe_page_title = self._safe_filename_chars(page_title, 100)
+            safe_page_title = self._safe_filename_chars(page_title, 255)
             danmaku_filename = f"P{page_index+1:02d}_{safe_page_title}_danmaku.jsonl"
             danmaku_path = video_folder / danmaku_filename
             
