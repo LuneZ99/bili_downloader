@@ -18,7 +18,7 @@ Bili Downloader 是一个功能强大的 Bilibili 视频下载工具，支持高
 - 🔄 **自动格式处理** - 支持 FLV/MP4/DASH 格式自动转换
 - 📁 **智能目录管理** - 自动创建分类下载目录
 
-#### 动态爬取功能 🆕
+#### 动态爬取功能
 - 📱 **用户动态获取** - 获取指定用户的全部动态
 - 💬 **评论完整爬取** - 默认获取全部评论和楼中楼回复
 - 📊 **数据结构化保存** - JSON 格式保存，便于后续分析
@@ -163,7 +163,7 @@ python bili_cli.py download-series 123456 --no-danmaku
 python bili_cli.py download-series 123456 --type season
 ```
 
-#### 动态相关操作 🆕
+#### 动态相关操作
 
 ```bash
 # 列出用户最近的动态
@@ -219,22 +219,22 @@ python bili_cli.py download-user 477317922 --dir ./downloads --concurrent 2 --cr
 bili_downloader/
 ├── bili_cli.py              # 主CLI入口点
 ├── video.py                 # 视频管理器和下载器
-├── dynamic.py               # 动态管理器和爬取器 🆕
+├── dynamic.py               # 动态管理器和爬取器
 ├── requirements.txt         # Python依赖列表
 ├── credentials.json.example # 登录凭据模板
 ├── credentials.json         # 登录凭据文件(需自行创建)
 ├── README.md               # 项目说明文档
 ├── CLAUDE.md               # 开发指南
 └── downloads/              # 默认下载目录
-    ├── single_videos/      # 单独下载的视频 🆕
+    ├── single_videos/      # 单独下载的视频
     │   ├── 视频.mp4        # 视频文件
-    │   └── 视频_弹幕.jsonl # 弹幕文件 🆕
+    │   └── 视频_弹幕.jsonl # 弹幕文件
     ├── 用户名_UID/         # 用户数据目录
-    │   ├── dynamics/       # 动态和评论数据 🆕
+    │   ├── dynamics/       # 动态和评论数据
     │   └── videos/         # 视频文件和弹幕
     │       ├── 视频.mp4    # 视频文件
-    │       └── 视频_弹幕.jsonl # 弹幕文件 🆕
-    └── single_dynamics/    # 单个动态下载 🆕
+    │       └── 视频_弹幕.jsonl # 弹幕文件
+    └── single_dynamics/    # 单个动态下载
 ```
 
 ### 🎨 支持的画质格式
