@@ -712,9 +712,14 @@ class BilibiliVideoManager:
         username = user_info.get('name', 'Unknown')
         print(f"\n开始下载用户 {username} (UID: {uid}) 的视频")
         
-        # 创建下载目录
-        download_folder = self.create_download_folder(user_info, uid)
-        print(f"下载目录: {download_folder}")
+        # 创建用户根目录
+        user_folder = self.create_download_folder(user_info, uid)
+        
+        # 创建videos子文件夹用于存储视频
+        videos_folder = user_folder / "videos"
+        videos_folder.mkdir(parents=True, exist_ok=True)
+        
+        print(f"下载目录: {videos_folder}")
         
         # 获取所有视频
         all_videos = await self.list_user_videos_data(uid)
@@ -735,7 +740,7 @@ class BilibiliVideoManager:
         # 创建下载任务
         tasks = []
         for video_info in all_videos:
-            task = self.downloader.download_single_video(video_info['bvid'], download_folder, self.semaphore, download_danmaku)
+            task = self.downloader.download_single_video(video_info['bvid'], videos_folder, self.semaphore, download_danmaku)
             tasks.append(task)
         
         # 执行下载
