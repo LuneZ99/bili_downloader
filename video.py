@@ -13,6 +13,7 @@ import asyncio
 import os
 import json
 import logging
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -214,6 +215,32 @@ class VideoDownloader:
         safe_title = self._safe_filename_chars(title, 255)
         return f"{safe_title}_{bvid}.mp4"
     
+    def get_video_folder_name(self, title: str, bvid: str) -> str:
+        """生成视频文件夹名称"""
+        safe_title = self._safe_filename_chars(title, 240)  # 留15个字符给BVID和分隔符
+        return f"{safe_title}_{bvid}"
+    
+    async def save_video_metadata(self, info: dict, pages: list, folder_path: Path) -> bool:
+        """保存视频完整元数据到JSON文件"""
+        try:
+            metadata = {
+                "video_info": info,
+                "pages_info": pages,
+                "download_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+                "downloader_version": "bili_downloader_v1.0"
+            }
+            
+            metadata_path = folder_path / "metadata.json"
+            async with aiofiles.open(metadata_path, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps(metadata, ensure_ascii=False, indent=2))
+            
+            print(f"📋 元数据已保存: metadata.json")
+            return True
+        except Exception as e:
+            self.logger.error(f"保存元数据失败: {e}")
+            print(f"⚠️  元数据保存失败: {e}")
+            return False
+    
     @api_retry_decorator()
     async def get_video_info(self, bvid: str) -> Dict:
         """获取单个视频信息"""
@@ -291,26 +318,85 @@ class VideoDownloader:
             print(f"时长: {info.get('duration', 'Unknown')}秒")
             print(f"播放量: {info.get('stat', {}).get('view', 'Unknown')}")
             
-            filename = self.get_safe_filename(title, bvid)
-            final_path = download_folder / filename
+            # 创建视频专用文件夹
+            video_folder_name = self.get_video_folder_name(title, bvid)
+            video_folder = download_folder / video_folder_name
             
-            # 检查文件是否已存在
-            if final_path.exists():
-                print(f"视频已存在: {filename}")
+            # 检查文件夹是否已存在
+            if video_folder.exists():
+                print(f"视频文件夹已存在: {video_folder_name}")
                 return True
             
-            print(f"\n开始下载: {title}")
+            video_folder.mkdir(parents=True, exist_ok=True)
+            print(f"📁 创建视频文件夹: {video_folder_name}")
             
-            # 创建视频对象并获取下载链接
+            # 获取分P信息
             v = video.Video(bvid=bvid, credential=self.credential)
-            download_url_data = await self._get_download_url(v)
+            pages = await v.get_pages()
             
+            # 保存元数据
+            await self.save_video_metadata(info, pages, video_folder)
+            
+            print(f"\n开始下载: {title}")
+            print(f"分P数量: {len(pages)}")
+            
+            # 下载每个分P
+            all_success = True
+            for i, page in enumerate(pages):
+                page_title = page.get('part', f'P{i+1}')
+                print(f"\n📹 下载 P{i+1:02d}: {page_title}")
+                
+                success = await self._download_single_page(v, i, page, page_title, video_folder, download_danmaku)
+                if not success:
+                    all_success = False
+                    print(f"❌ P{i+1:02d} 下载失败")
+                else:
+                    print(f"✅ P{i+1:02d} 下载完成")
+            
+            if all_success:
+                print(f"🎉 视频下载完成: {title}")
+                return True
+            else:
+                print(f"⚠️  部分分P下载失败: {title}")
+                return False
+                        
+        except Exception as e:
+            print(f"❌ 下载失败: {e}")
+            self.logger.error(f"视频下载失败: {e}")
+            return False
+    
+    async def _download_single_page(self, v: video.Video, page_index: int, page_info: dict, page_title: str, video_folder: Path, download_danmaku: bool = True) -> bool:
+        """下载单个分P视频和弹幕"""
+        try:
+            # 生成分P文件名
+            safe_page_title = self._safe_filename_chars(page_title, 100)
+            video_filename = f"P{page_index+1:02d}_{safe_page_title}.mp4"
+            video_path = video_folder / video_filename
+            
+            # 检查视频文件是否已存在
+            if video_path.exists():
+                print(f"分P视频已存在: {video_filename}")
+                # 如果视频存在但弹幕不存在，仍然下载弹幕
+                if download_danmaku:
+                    danmaku_filename = f"P{page_index+1:02d}_{safe_page_title}_弹幕.jsonl"
+                    danmaku_path = video_folder / danmaku_filename
+                    if not danmaku_path.exists():
+                        await self._download_page_danmaku(v, page_index, page_title, video_folder)
+                return True
+            
+            # 获取下载链接
+            download_url_data = await v.get_download_url(page_index)
             if not download_url_data:
+                print(f"无法获取P{page_index+1}下载链接")
                 return False
             
             # 解析下载数据
             detecter = video.VideoDownloadURLDataDetecter(data=download_url_data)
             streams = detecter.detect_best_streams()
+            
+            if not streams:
+                print(f"无法获取P{page_index+1}视频流")
+                return False
             
             # 显示获得的最佳画质信息
             if streams:
@@ -321,47 +407,38 @@ class VideoDownloader:
                 }
                 quality_name = quality_names.get(best_quality.value, f"质量码{best_quality.value}")
                 auth_status = "🔓 会员画质" if self.credential else "🔒 普通画质"
-                print(f"📺 获得画质: {quality_name} ({auth_status})")
+                print(f"📺 P{page_index+1} 画质: {quality_name} ({auth_status})")
             
-            if not streams:
-                print(f"无法获取视频流: {title}")
-                return False
-            
-            # 检查流类型并下载
+            # 下载视频
+            success = False
             if detecter.check_flv_mp4_stream():
                 # FLV/MP4 流 - 直接下载
-                temp_file = download_folder / f"temp_{bvid}.flv"
-                success = await self.download_file(streams[0].url, temp_file, f"下载 {title}")
+                temp_file = video_folder / f"temp_P{page_index+1:02d}.flv"
+                download_success = await self.download_file(streams[0].url, temp_file, f"P{page_index+1}")
                 
-                if success:
+                if download_success:
                     # 使用 ffmpeg 转换格式
-                    result = os.system(f'ffmpeg -i "{temp_file}" -c copy "{final_path}" -y > /dev/null 2>&1')
+                    result = os.system(f'ffmpeg -i "{temp_file}" -c copy "{video_path}" -y > /dev/null 2>&1')
                     temp_file.unlink(missing_ok=True)
-                    
-                    if result == 0:
-                        print(f"✅ 下载完成: {filename}")
-                        return True
-                    else:
-                        print(f"❌ 视频转换失败: {title}")
-                        return False
+                    success = (result == 0)
             else:
                 # DASH 流 - 音视频分离
-                video_temp = download_folder / f"temp_video_{bvid}.m4s"
-                audio_temp = download_folder / f"temp_audio_{bvid}.m4s"
+                video_temp = video_folder / f"temp_video_P{page_index+1:02d}.m4s"
+                audio_temp = video_folder / f"temp_audio_P{page_index+1:02d}.m4s"
                 
                 # 下载视频流和音频流
-                video_success = await self.download_file(streams[0].url, video_temp, f"下载视频流")
+                video_success = await self.download_file(streams[0].url, video_temp, f"P{page_index+1} 视频流")
                 if video_success and len(streams) > 1:
-                    audio_success = await self.download_file(streams[1].url, audio_temp, f"下载音频流")
+                    audio_success = await self.download_file(streams[1].url, audio_temp, f"P{page_index+1} 音频流")
                 else:
                     audio_success = True  # 只有视频流的情况
                 
                 if video_success:
                     # 使用 ffmpeg 合并音视频
                     if len(streams) > 1 and audio_success:
-                        cmd = f'ffmpeg -i "{video_temp}" -i "{audio_temp}" -c copy "{final_path}" -y > /dev/null 2>&1'
+                        cmd = f'ffmpeg -i "{video_temp}" -i "{audio_temp}" -c copy "{video_path}" -y > /dev/null 2>&1'
                     else:
-                        cmd = f'ffmpeg -i "{video_temp}" -c copy "{final_path}" -y > /dev/null 2>&1'
+                        cmd = f'ffmpeg -i "{video_temp}" -c copy "{video_path}" -y > /dev/null 2>&1'
                     
                     result = os.system(cmd)
                     
@@ -369,70 +446,37 @@ class VideoDownloader:
                     video_temp.unlink(missing_ok=True)
                     audio_temp.unlink(missing_ok=True)
                     
-                    if result == 0:
-                        print(f"✅ 视频下载完成: {filename}")
-                        
-                        # 下载弹幕
-                        if download_danmaku:
-                            v = video.Video(bvid=bvid, credential=self.credential)
-                            await self._download_video_danmakus(v, download_folder, filename)
-                        
-                        print(f"✅ 全部下载完成: {filename}")
-                        return True
-                    else:
-                        print(f"❌ 视频合并失败: {title}")
-                        return False
-                        
+                    success = (result == 0)
+            
+            # 下载弹幕
+            if success and download_danmaku:
+                await self._download_page_danmaku(v, page_index, page_title, video_folder)
+            
+            return success
+            
         except Exception as e:
-            print(f"❌ 下载失败: {e}")
+            print(f"❌ P{page_index+1} 下载失败: {e}")
+            self.logger.error(f"分P{page_index+1}下载失败: {e}")
             return False
-            
-        return False
     
-    async def _download_video_danmakus(self, v: video.Video, download_folder: Path, video_filename: str):
-        """
-        下载视频所有分P的弹幕
-        
-        Args:
-            v: 视频对象
-            download_folder: 下载目录
-            video_filename: 视频文件名(不含扩展名)
-        """
+    async def _download_page_danmaku(self, v: video.Video, page_index: int, page_title: str, video_folder: Path):
+        """下载单个分P的弹幕"""
         try:
-            # 获取视频页面信息
-            pages = await v.get_pages()
-            total_pages = len(pages)
+            print(f"📝 下载P{page_index+1}弹幕: {page_title}")
             
-            if total_pages == 1:
-                # 单P视频
-                print("📝 正在下载弹幕...")
-                danmakus = await self.get_video_danmakus(v, 0)
-                special_danmakus = await self.get_video_special_danmakus(v, 0)
-                
-                # 保存弹幕文件
-                danmaku_filename = f"{video_filename}_danmaku.jsonl"
-                danmaku_path = download_folder / danmaku_filename
-                await self.save_danmakus_to_jsonl(danmakus, special_danmakus, danmaku_path)
-                
-            else:
-                # 多P视频，每P一个弹幕文件
-                print(f"📝 正在下载 {total_pages} 个分P的弹幕...")
-                for i, page in enumerate(pages):
-                    page_title = page.get('part', f'P{i+1}')
-                    print(f"📝 正在下载P{i+1}弹幕: {page_title}")
-                    
-                    danmakus = await self.get_video_danmakus(v, i)
-                    special_danmakus = await self.get_video_special_danmakus(v, i)
-                    
-                    # 保存弹幕文件
-                    safe_part = self._safe_filename_chars(page_title, 50)
-                    danmaku_filename = f"{video_filename}_P{i+1:02d}_{safe_part}_danmaku.jsonl"
-                    danmaku_path = download_folder / danmaku_filename
-                    await self.save_danmakus_to_jsonl(danmakus, special_danmakus, danmaku_path)
+            danmakus = await self.get_video_danmakus(v, page_index)
+            special_danmakus = await self.get_video_special_danmakus(v, page_index)
+            
+            # 生成弹幕文件名
+            safe_page_title = self._safe_filename_chars(page_title, 100)
+            danmaku_filename = f"P{page_index+1:02d}_{safe_page_title}_弹幕.jsonl"
+            danmaku_path = video_folder / danmaku_filename
+            
+            await self.save_danmakus_to_jsonl(danmakus, special_danmakus, danmaku_path)
             
         except Exception as e:
-            print(f"⚠️  弹幕下载失败: {e}")
-            self.logger.error(f"弹幕下载失败: {e}")
+            print(f"⚠️  P{page_index+1}弹幕下载失败: {e}")
+            self.logger.error(f"P{page_index+1}弹幕下载失败: {e}")
     
     @api_retry_decorator()
     async def get_video_danmakus(self, v: video.Video, page_index: int = 0) -> List[Danmaku]:

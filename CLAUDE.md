@@ -56,13 +56,17 @@ cp credentials.json.example credentials.json
 
 ## Core Workflows
 
-### Video Download Flow
-1. **Video info retrieval**: `get_video_info()` fetches metadata via bilibili-api
-2. **Stream detection**: `VideoDownloadURLDataDetecter` identifies best available quality
-3. **Download strategy**:
+### Video Download Flow (Restructured)
+1. **Video info retrieval**: `get_video_info()` fetches complete metadata via bilibili-api
+2. **Folder creation**: Creates dedicated folder for each video using safe filename processing
+3. **Metadata saving**: Saves complete video info + pages data to `metadata.json`
+4. **Multi-page processing**: Downloads each part (P01, P02, ...) separately with proper naming
+5. **Stream detection**: `VideoDownloadURLDataDetecter` identifies best available quality per page
+6. **Download strategy per page**:
    - **FLV/MP4 streams**: Direct download + FFmpeg format conversion
    - **DASH streams**: Separate audio/video download + FFmpeg merging
-4. **File management**: Safe filename generation, temporary file cleanup
+7. **Danmaku integration**: Automatic per-page danmaku download alongside videos
+8. **File organization**: Clean structure with videos, danmaku, and metadata in dedicated folders
 
 ### Dynamics Crawling Flow (NEW)
 1. **User dynamics retrieval**: `get_user_all_dynamics()` paginated fetching via `user.get_dynamics_new()`

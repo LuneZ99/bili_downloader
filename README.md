@@ -225,16 +225,22 @@ bili_downloader/
 ├── credentials.json         # 登录凭据文件(需自行创建)
 ├── README.md               # 项目说明文档
 ├── CLAUDE.md               # 开发指南
-└── downloads/              # 默认下载目录
-    ├── single_videos/      # 单独下载的视频
-    │   ├── 视频.mp4        # 视频文件
-    │   └── 视频_弹幕.jsonl # 弹幕文件
-    ├── 用户名_UID/         # 用户数据目录
-    │   ├── dynamics/       # 动态和评论数据
-    │   └── videos/         # 视频文件和弹幕
-    │       ├── 视频.mp4    # 视频文件
-    │       └── 视频_弹幕.jsonl # 弹幕文件
-    └── single_dynamics/    # 单个动态下载
+└── downloads/                    # 默认下载目录
+    ├── single_videos/            # 单独下载的视频
+    │   └── 【视频标题】_BVID/     # 每个视频专用文件夹
+    │       ├── metadata.json      # 完整视频元数据
+    │       ├── P01_分P标题.mp4   # 分P视频文件
+    │       ├── P01_分P标题_弹幕.jsonl # 分P弹幕文件
+    │       ├── P02_分P标题.mp4   # (多P视频)
+    │       └── P02_分P标题_弹幕.jsonl # (多P视频)
+    ├── 用户名_UID/               # 用户数据目录
+    │   ├── dynamics/             # 动态和评论数据
+    │   └── videos/               # 用户视频下载目录
+    │       └── 【视频标题】_BVID/ # 每个视频专用文件夹
+    │           ├── metadata.json  # 完整视频元数据
+    │           ├── P01_分P标题.mp4 # 分P视频文件
+    │           └── P01_分P标题_弹幕.jsonl # 分P弹幕文件
+    └── single_dynamics/          # 单个动态下载
 ```
 
 ### 🎨 支持的画质格式
@@ -354,8 +360,52 @@ bili_downloader/
 
 #### 文件命名规则
 
-- **单P视频**: `视频标题_弹幕.jsonl`
-- **多P视频**: `视频标题_P01_分P标题_弹幕.jsonl`, `视频标题_P02_分P标题_弹幕.jsonl` ...
+- **视频文件**: `P{序号:02d}_{分P标题}.mp4` (如 `P01_第一集.mp4`)
+- **弹幕文件**: `P{序号:02d}_{分P标题}_弹幕.jsonl` (如 `P01_第一集_弹幕.jsonl`)
+- **元数据文件**: `metadata.json` (包含完整视频和分P信息)
+
+### 📊 元数据格式
+
+每个视频文件夹都包含完整的元数据信息，以JSON格式保存：
+
+```json
+{
+  "video_info": {
+    "bvid": "BV1234567890",
+    "aid": 123456789,
+    "title": "视频标题",
+    "desc": "视频描述",
+    "owner": {
+      "mid": 12345678,
+      "name": "UP主名称"
+    },
+    "stat": {
+      "view": 10000,
+      "danmaku": 500,
+      "like": 1000,
+      "coin": 200,
+      "favorite": 300
+    },
+    "pubdate": 1640995200,
+    "duration": 600,
+    "pic": "视频封面URL"
+  },
+  "pages_info": [
+    {
+      "cid": 123456789,
+      "page": 1,
+      "part": "分P标题",
+      "duration": 600,
+      "dimension": {
+        "width": 1920,
+        "height": 1080
+      }
+    }
+  ],
+  "download_time": "2024-01-01 12:00:00",
+  "downloader_version": "bili_downloader_v1.0"
+}
+```
 
 ### 📜 许可证
 
