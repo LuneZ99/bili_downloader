@@ -102,10 +102,19 @@ results = await asyncio.gather(*tasks, return_exceptions=True)
 - Exception handling with graceful degradation
 - Progress reporting during downloads with percentage completion
 
-### File Safety
-- Filename sanitization removing illegal characters
-- Length limitation (50 chars) for filesystem compatibility
-- Automatic directory creation with proper permissions
+### File Safety and Filename Processing
+- **Smart character mapping**: Converts problematic characters to full-width equivalents for cross-platform compatibility
+  - `/` → `／` (full-width slash)
+  - `?` → `？` (Chinese question mark)  
+  - `:` → `：` (Chinese colon)
+  - `<>` → `〈〉` (full-width angle brackets)
+  - `|` → `｜` (full-width vertical bar)
+  - `"` → `"` (Chinese quotation mark)
+  - `*` → `＊` (full-width asterisk)
+  - `\` → `＼` (full-width backslash)
+- **Extended length support**: 255 characters for main titles, 50 characters for multi-part video segments
+- **Unicode preservation**: Fully preserves Chinese, Japanese, and other Unicode characters
+- **Automatic directory creation** with proper permissions
 
 ## Dynamics Feature Details (NEW)
 

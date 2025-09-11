@@ -186,12 +186,32 @@ class VideoDownloader:
             print(f"⚠️  凭据创建失败: {e}")
             return None
     
+    def _safe_filename_chars(self, text: str, max_length: int = 255) -> str:
+        """处理文件名中的字符，确保跨平台兼容性"""
+        # 字符映射表：将有问题的字符替换为全角等效字符
+        char_map = {
+            '/': '／',    # 全角斜杠
+            '?': '？',    # 中文问号
+            ':': '：',    # 中文冒号
+            '<': '〈',    # 全角小于号
+            '>': '〉',    # 全角大于号
+            '|': '｜',    # 全角竖线
+            '"': '"',    # 中文双引号
+            '*': '＊',    # 全角星号
+            '\\': '＼',   # 全角反斜杠
+        }
+        
+        # 应用字符映射
+        safe_text = text
+        for old_char, new_char in char_map.items():
+            safe_text = safe_text.replace(old_char, new_char)
+        
+        # 移除首尾空格并限制长度
+        return safe_text.strip()[:max_length]
+    
     def get_safe_filename(self, title: str, bvid: str) -> str:
         """生成安全的文件名"""
-        # 清理标题中的非法字符
-        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_', '.')).strip()
-        safe_title = safe_title[:50]  # 限制长度
-        
+        safe_title = self._safe_filename_chars(title, 255)
         return f"{safe_title}_{bvid}.mp4"
     
     @api_retry_decorator()
@@ -405,7 +425,7 @@ class VideoDownloader:
                     special_danmakus = await self.get_video_special_danmakus(v, i)
                     
                     # 保存弹幕文件
-                    safe_part = "".join(c for c in page_title if c.isalnum() or c in "._- ")[:30]
+                    safe_part = self._safe_filename_chars(page_title, 50)
                     danmaku_filename = f"{video_filename}_P{i+1:02d}_{safe_part}_danmaku.jsonl"
                     danmaku_path = download_folder / danmaku_filename
                     await self.save_danmakus_to_jsonl(danmakus, special_danmakus, danmaku_path)
