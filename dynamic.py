@@ -12,6 +12,7 @@ Bilibili动态爬取器
 import asyncio
 import json
 import os
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -20,14 +21,15 @@ from bilibili_api import user, comment, dynamic, Credential
 from bilibili_api.comment import CommentResourceType
 from bilibili_api.dynamic import Dynamic
 
-from utils import get_logger
+from utils import get_logger, api_retry_decorator
 
 
 class DynamicsCrawler:
     """B站用户动态爬取器"""
     
-    def __init__(self, credential: Optional[Credential] = None, max_concurrent: int = 3, 
-                 max_comments_per_dynamic: int = -1):
+    def __init__(self, credential: Optional[Credential] = None, max_concurrent: int = 1, 
+                 max_comments_per_dynamic: int = -1, base_wait_time: float = 0.1, 
+                 full_sub_comments: bool = False):
         """
         初始化动态爬取器
         
@@ -35,11 +37,16 @@ class DynamicsCrawler:
             credential: B站登录凭据
             max_concurrent: 最大并发数
             max_comments_per_dynamic: 每个动态最大评论数限制 (-1 表示无限制)
+            base_wait_time: 请求之间的基本等待时间（秒，默认0.1秒）
+            full_sub_comments: 是否获取完整楼中楼评论 (False=仅使用内嵌楼中楼, True=单独获取完整楼中楼)
         """
         self.credential = credential or Credential()
         self.max_concurrent = max_concurrent
         self.max_comments_per_dynamic = max_comments_per_dynamic
+        self.full_sub_comments = full_sub_comments
         self.semaphore = asyncio.Semaphore(max_concurrent)
+        self.base_wait_time = base_wait_time
+        self.current_wait_time = base_wait_time
         
         # 使用统一的日志配置
         self.logger = get_logger('DynamicsCrawler')
@@ -53,23 +60,31 @@ class DynamicsCrawler:
             'start_time': None
         }
     
+    @api_retry_decorator()
     async def get_user_info(self, uid: int) -> Dict:
         """获取用户信息"""
         try:
-            user_obj = user.User(uid)
+            user_obj = user.User(uid, credential=self.credential)
             info = await user_obj.get_user_info()
             return info
         except Exception as e:
             self.logger.error(f"获取用户信息失败: {e}")
             return {}
     
-    async def get_user_all_dynamics(self, uid: int) -> List[Dict]:
+    @api_retry_decorator()
+    async def _get_dynamics_page(self, user_obj: user.User, offset: str) -> Dict:
+        """获取一页动态"""
+        return await user_obj.get_dynamics_new(offset=offset)
+
+    async def get_user_all_dynamics(self, uid: int, start_page: int = 1, max_pages: Optional[int] = None) -> List[Dict]:
         """
         获取用户所有动态
         
         Args:
             uid: 用户ID
-            
+            start_page: 起始页码
+            max_pages: 最大爬取页数
+
         Returns:
             List[Dict]: 动态信息列表
         """
@@ -77,30 +92,38 @@ class DynamicsCrawler:
         all_dynamics = []
         offset = ""
         page = 1
+        pages_crawled = 0
         
         self.logger.info(f"开始获取用户 {uid} 的动态列表...")
         
         while True:
+            if max_pages is not None and pages_crawled >= max_pages:
+                self.logger.info(f"已达到最大爬取页数限制 ({max_pages}页)，停止获取。")
+                break
+
             try:
-                dynamics_data = await user_obj.get_dynamics_new(offset=offset)
+                dynamics_data = await self._get_dynamics_page(user_obj, offset)
                 
-                if not dynamics_data.get('items'):
+                if not dynamics_data or not dynamics_data.get('items'):
                     break
                 
-                dynamics_list = dynamics_data['items']
-                all_dynamics.extend(dynamics_list)
-                
-                self.logger.info(f"获取第 {page} 页，{len(dynamics_list)} 条动态，累计 {len(all_dynamics)} 条")
-                
+                if page >= start_page:
+                    dynamics_list = dynamics_data['items']
+                    all_dynamics.extend(dynamics_list)
+                    pages_crawled += 1
+                    self.logger.info(f"获取第 {page} 页，{len(dynamics_list)} 条动态，累计 {len(all_dynamics)} 条 (已爬取 {pages_crawled} 页)")
+                else:
+                    self.logger.info(f"跳过第 {page} 页 (起始页: {start_page})")
+
                 # 检查是否有下一页
-                if not dynamics_data.get('offset') or len(dynamics_list) == 0:
+                if not dynamics_data.get('offset') or len(dynamics_data['items']) == 0:
                     break
                 
                 offset = dynamics_data['offset']
                 page += 1
                 
                 # 避免请求过快
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
                 
             except Exception as e:
                 self.logger.error(f"获取第 {page} 页动态列表失败: {e}")
@@ -110,6 +133,16 @@ class DynamicsCrawler:
         self.stats['total_dynamics'] = len(all_dynamics)
         return all_dynamics
     
+    @api_retry_decorator()
+    async def _get_comments_page(self, oid: int, type_: CommentResourceType, offset: str) -> Dict:
+        """获取一页根评论"""
+        return await comment.get_comments_lazy(
+            oid=oid,
+            type_=type_,
+            offset=offset,
+            credential=self.credential
+        )
+
     async def get_dynamic_comments(self, dynamic_obj: Dynamic, dynamic_type: CommentResourceType) -> Dict:
         """
         获取单个动态的所有评论和楼中楼
@@ -124,6 +157,7 @@ class DynamicsCrawler:
         try:
             # 获取动态的rid作为评论区oid
             rid = await dynamic_obj.get_rid()
+            dynamic_id = dynamic_obj.get_dynamic_id()
             
             comments_data = {
                 'root_comments': [],
@@ -134,51 +168,92 @@ class DynamicsCrawler:
             # 获取根评论
             offset = ""
             comment_count = 0
+            page_count = 0
+            sub_comments_to_process = []
+            
+            self.logger.info(f"动态 {dynamic_id}: 开始获取根评论...")
             
             while True:
-                try:
-                    # 获取评论列表
-                    comments_resp = await comment.get_comments_lazy(
-                        oid=rid,
-                        type_=dynamic_type,
-                        offset=offset,
-                        credential=self.credential
-                    )
-                    
-                    if not comments_resp.get('replies'):
-                        break
-                    
-                    root_comments = comments_resp['replies']
-                    
-                    for root_comment in root_comments:
-                        comment_count += 1
-                        if self.max_comments_per_dynamic != -1 and comment_count > self.max_comments_per_dynamic:
-                            self.logger.warning(f"动态 {dynamic_obj.get_dynamic_id()} 评论数超过限制 {self.max_comments_per_dynamic}")
-                            break
-                        
-                        comments_data['root_comments'].append(root_comment)
-                        
-                        # 获取楼中楼评论
-                        if root_comment.get('rcount', 0) > 0:
-                            rpid = root_comment['rpid']
-                            sub_comments = await self.get_sub_comments(rid, dynamic_type, rpid)
-                            if sub_comments:
-                                comments_data['sub_comments'][str(rpid)] = sub_comments
-                    
-                    # 检查是否有下一页
-                    if not comments_resp.get('cursor') or not comments_resp['cursor'].get('next'):
-                        break
-                    
-                    offset = str(comments_resp['cursor']['next'])
-                    await asyncio.sleep(0.3)  # 避免请求过快
-                    
-                    if self.max_comments_per_dynamic != -1 and comment_count > self.max_comments_per_dynamic:
-                        break
-                        
-                except Exception as e:
-                    self.logger.error(f"获取评论失败: {e}")
+                comments_resp = await self._get_comments_page(rid, dynamic_type, offset)
+
+                if not comments_resp or not comments_resp.get('replies'):
                     break
+                
+                page_count += 1
+                root_comments = comments_resp['replies']
+                
+                self.logger.info(f"动态 {dynamic_id}: 获取第 {page_count} 页根评论，{len(root_comments)} 条")
+                
+                for root_comment in root_comments:
+                    comment_count += 1
+                    if self.max_comments_per_dynamic != -1 and comment_count > self.max_comments_per_dynamic:
+                        self.logger.warning(f"动态 {dynamic_id} 评论数超过限制 {self.max_comments_per_dynamic}")
+                        break
+                    
+                    # 根据策略处理楼中楼
+                    if self.full_sub_comments:
+                        # 方案B: 清空内嵌楼中楼，单独获取完整楼中楼
+                        if root_comment.get('rcount', 0) > 0:
+                            sub_comments_to_process.append({
+                                'rpid': root_comment['rpid'],
+                                'rcount': root_comment['rcount']
+                            })
+                        # 清空内嵌的replies避免重复
+                        root_comment['replies'] = []
+                    else:
+                        # 方案A: 保留内嵌楼中楼，不单独获取
+                        pass  # 保持原有的replies字段
+                    
+                    comments_data['root_comments'].append(root_comment)
+                
+                # 检查是否有下一页 - 使用正确的API字段路径
+                cursor = comments_resp.get('cursor', {})
+                pagination_reply = cursor.get('pagination_reply', {})
+                next_offset = pagination_reply.get('next_offset', '')
+                
+                if not next_offset:
+                    self.logger.info(f"动态 {dynamic_id}: 没有更多页面")
+                    break
+                
+                offset = next_offset
+                await asyncio.sleep(self.base_wait_time)
+                
+                if self.max_comments_per_dynamic != -1 and comment_count > self.max_comments_per_dynamic:
+                    break
+
+            # 统计楼中楼信息
+            total_sub_comments_expected = sum(item['rcount'] for item in sub_comments_to_process)
             
+            if sub_comments_to_process and self.full_sub_comments:
+                # 方案B: 单独获取完整楼中楼
+                self.logger.info(f"动态 {dynamic_id}: 根评论获取完成，共 {comment_count} 条根评论，"
+                               f"发现 {len(sub_comments_to_process)} 个楼中楼，预计 {total_sub_comments_expected} 条子评论")
+                
+                # 获取楼中楼评论
+                processed_sub_count = 0
+                for i, sub_info in enumerate(sub_comments_to_process, 1):
+                    rpid = sub_info['rpid']
+                    expected_count = sub_info['rcount']
+                    
+                    self.logger.info(f"动态 {dynamic_id}: 获取楼中楼 {i}/{len(sub_comments_to_process)} "
+                                   f"(rpid: {rpid}, 预计: {expected_count} 条)")
+                    
+                    sub_comments = await self.get_sub_comments(rid, dynamic_type, rpid)
+                    if sub_comments:
+                        comments_data['sub_comments'][str(rpid)] = sub_comments
+                        processed_sub_count += len(sub_comments)
+                        
+                        self.logger.info(f"动态 {dynamic_id}: 楼中楼 {i}/{len(sub_comments_to_process)} 完成，"
+                                       f"实际获取 {len(sub_comments)} 条，累计子评论: {processed_sub_count}")
+                
+                self.logger.info(f"动态 {dynamic_id}: 楼中楼获取完成，实际获取 {processed_sub_count} 条子评论")
+            else:
+                # 方案A: 使用内嵌楼中楼或无楼中楼
+                if self.full_sub_comments:
+                    self.logger.info(f"动态 {dynamic_id}: 根评论获取完成，共 {comment_count} 条，无楼中楼")
+                else:
+                    self.logger.info(f"动态 {dynamic_id}: 根评论获取完成，共 {comment_count} 条，使用内嵌楼中楼")
+
             comments_data['total_count'] = comment_count
             self.stats['total_comments'] += comment_count
             
@@ -188,6 +263,11 @@ class DynamicsCrawler:
             self.logger.error(f"获取动态 {dynamic_obj.get_dynamic_id()} 评论失败: {e}")
             return {'root_comments': [], 'sub_comments': {}, 'total_count': 0}
     
+    @api_retry_decorator()
+    async def _get_sub_comments_page(self, comment_obj: comment.Comment, page: int) -> Dict:
+        """获取一页楼中楼评论"""
+        return await comment_obj.get_sub_comments(page_index=page, page_size=20)
+
     async def get_sub_comments(self, oid: int, type_: CommentResourceType, root_rpid: int) -> List[Dict]:
         """
         获取楼中楼评论
@@ -207,30 +287,34 @@ class DynamicsCrawler:
             page = 1
             
             while True:
-                try:
-                    sub_resp = await comment_obj.get_sub_comments(page_index=page, page_size=20)
-                    
-                    if not sub_resp.get('replies'):
-                        break
-                    
-                    page_comments = sub_resp['replies']
-                    sub_comments.extend(page_comments)
-                    
-                    # 检查是否还有更多页
-                    if len(page_comments) < 20:
-                        break
-                    
-                    page += 1
-                    await asyncio.sleep(0.2)  # 避免请求过快
-                    
-                except Exception as e:
-                    self.logger.error(f"获取楼中楼评论第 {page} 页失败: {e}")
+                self.logger.debug(f"获取楼中楼 {root_rpid} 第 {page} 页...")
+                sub_resp = await self._get_sub_comments_page(comment_obj, page)
+
+                if not sub_resp or not sub_resp.get('replies'):
                     break
+                
+                page_comments = sub_resp['replies']
+                sub_comments.extend(page_comments)
+                
+                if page == 1:
+                    self.logger.debug(f"楼中楼 {root_rpid}: 第 {page} 页获取 {len(page_comments)} 条")
+                elif page % 5 == 0 or len(page_comments) < 20:  # 每5页或最后一页打印进度
+                    self.logger.debug(f"楼中楼 {root_rpid}: 第 {page} 页获取 {len(page_comments)} 条，累计 {len(sub_comments)} 条")
+                
+                # 检查是否还有更多页
+                if len(page_comments) < 20:
+                    break
+                
+                page += 1
+                await asyncio.sleep(self.base_wait_time)
+            
+            if page > 1:
+                self.logger.debug(f"楼中楼 {root_rpid} 获取完成: 共 {page} 页，{len(sub_comments)} 条子评论")
             
             return sub_comments
             
         except Exception as e:
-            self.logger.error(f"获取楼中楼评论失败: {e}")
+            self.logger.error(f"获取楼中楼评论失败 (rpid: {root_rpid}): {e}")
             return []
     
     def determine_comment_type(self, dynamic_info: Dict) -> CommentResourceType:
@@ -317,8 +401,11 @@ class DynamicsCrawler:
     async def _process_dynamic_impl(self, dynamic_info: Dict, save_dir: Path, 
                                   include_comments: bool) -> bool:
         """处理单个动态的具体实现"""
+        dynamic_id = dynamic_info['id_str']
+        start_time = datetime.now()
+        
+        self.logger.info(f"开始处理动态: {dynamic_id}")
         try:
-            dynamic_id = dynamic_info['id_str']
             
             # 检查文件是否已存在
             filename = f"dynamic_{dynamic_id}.json"
@@ -331,6 +418,7 @@ class DynamicsCrawler:
             comments_data = {'root_comments': [], 'sub_comments': {}, 'total_count': 0}
             
             if include_comments:
+                self.logger.info(f"正在获取动态 {dynamic_id} 的评论...")
                 # 创建动态对象
                 dynamic_obj = Dynamic(int(dynamic_id), credential=self.credential)
                 
@@ -339,9 +427,19 @@ class DynamicsCrawler:
                 
                 # 获取评论
                 comments_data = await self.get_dynamic_comments(dynamic_obj, comment_type)
+                
+                # 计算处理时间
+                processing_time = datetime.now() - start_time
+                
+                self.logger.info(f"动态 {dynamic_id} 评论获取完成，共 {comments_data['total_count']} 条评论，"
+                               f"耗时 {processing_time.total_seconds():.1f}秒")
             
             # 保存数据
             await self.save_dynamic_data(dynamic_info, comments_data, save_dir)
+            
+            # 总处理时间
+            total_time = datetime.now() - start_time
+            self.logger.info(f"动态 {dynamic_id} 处理完成，总耗时 {total_time.total_seconds():.1f}秒")
             
             self.stats['processed_dynamics'] += 1
             return True
@@ -352,7 +450,8 @@ class DynamicsCrawler:
             return False
     
     async def crawl_user_dynamics(self, uid: int, save_dir: str = "dynamics", 
-                                include_comments: bool = True) -> Dict:
+                                include_comments: bool = True, 
+                                start_page: int = 1, max_pages: Optional[int] = None) -> Dict:
         """
         爬取用户所有动态和评论
         
@@ -360,6 +459,8 @@ class DynamicsCrawler:
             uid: 用户ID
             save_dir: 保存目录
             include_comments: 是否包含评论
+            start_page: 起始页码
+            max_pages: 最大爬取页数
             
         Returns:
             Dict: 爬取统计信息
@@ -379,33 +480,85 @@ class DynamicsCrawler:
         save_path = Path(save_dir) / f"{username}_{uid}" / "dynamics"
         save_path.mkdir(parents=True, exist_ok=True)
         
-        # 获取所有动态
-        all_dynamics = await self.get_user_all_dynamics(uid)
-        if not all_dynamics:
+        # 逐页获取和处理动态
+        user_obj = user.User(uid, credential=self.credential)
+        offset = ""
+        page = 1
+        pages_crawled = 0
+        total_dynamics_processed = 0
+        
+        self.logger.info(f"开始逐页获取和处理动态...")
+        
+        while True:
+            if max_pages is not None and pages_crawled >= max_pages:
+                self.logger.info(f"已达到最大爬取页数限制 ({max_pages}页)，停止获取。")
+                break
+
+            try:
+                # 获取当前页动态
+                dynamics_data = await self._get_dynamics_page(user_obj, offset)
+                
+                if not dynamics_data or not dynamics_data.get('items'):
+                    break
+                
+                if page >= start_page:
+                    dynamics_list = dynamics_data['items']
+                    pages_crawled += 1
+                    
+                    self.logger.info(f"获取第 {page} 页，{len(dynamics_list)} 条动态，开始处理...")
+                    
+                    # 立即处理这页的动态
+                    tasks = []
+                    for dynamic_info in dynamics_list:
+                        task = self.process_single_dynamic(dynamic_info, save_path, include_comments)
+                        tasks.append(task)
+                    
+                    # 并发执行当前页的任务
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    # 统计当前页结果
+                    page_success_count = sum(1 for result in results if result is True)
+                    total_dynamics_processed += len(dynamics_list)
+                    
+                    self.logger.info(f"第 {page} 页处理完成: {page_success_count}/{len(dynamics_list)} 成功, "
+                                   f"累计处理 {total_dynamics_processed} 条动态")
+                    
+                else:
+                    self.logger.info(f"跳过第 {page} 页 (起始页: {start_page})")
+
+                # 检查是否有下一页
+                if not dynamics_data.get('offset') or len(dynamics_data['items']) == 0:
+                    break
+                
+                offset = dynamics_data['offset']
+                page += 1
+                
+                # 避免请求过快
+                await asyncio.sleep(0.1)
+                
+            except Exception as e:
+                self.logger.error(f"处理第 {page} 页动态失败: {e}")
+                break
+        
+        if total_dynamics_processed == 0:
             self.logger.warning("未找到任何动态")
             return self.stats
         
-        self.logger.info(f"开始处理 {len(all_dynamics)} 条动态{'和评论' if include_comments else ''}...")
-        
-        # 创建处理任务
-        tasks = []
-        for dynamic_info in all_dynamics:
-            task = self.process_single_dynamic(dynamic_info, save_path, include_comments)
-            tasks.append(task)
-        
-        # 并发执行任务
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # 统计结果
-        success_count = sum(1 for result in results if result is True)
+        # 更新统计信息
+        self.stats['total_dynamics'] = total_dynamics_processed
         
         # 保存爬取元信息
+        # 处理 stats 中的 datetime 对象，避免 JSON 序列化错误
+        stats_copy = self.stats.copy()
+        if 'start_time' in stats_copy and isinstance(stats_copy['start_time'], datetime):
+            stats_copy['start_time'] = stats_copy['start_time'].isoformat()
+            
         metadata = {
             'user_info': user_info,
-            'crawl_stats': self.stats,
+            'crawl_stats': stats_copy,
             'crawl_time': datetime.now().isoformat(),
-            'total_dynamics': len(all_dynamics),
-            'processed_dynamics': success_count,
+            'total_dynamics': total_dynamics_processed,
+            'processed_dynamics': self.stats['processed_dynamics'],
             'include_comments': include_comments
         }
         
@@ -416,9 +569,9 @@ class DynamicsCrawler:
         # 输出统计结果
         duration = datetime.now() - self.stats['start_time']
         self.logger.info(f"爬取完成！")
-        self.logger.info(f"总动态数: {len(all_dynamics)}")
-        self.logger.info(f"成功处理: {success_count}")
-        self.logger.info(f"失败数: {len(all_dynamics) - success_count}")
+        self.logger.info(f"总动态数: {total_dynamics_processed}")
+        self.logger.info(f"成功处理: {self.stats['processed_dynamics']}")
+        self.logger.info(f"失败数: {self.stats['failed_dynamics']}")
         if include_comments:
             self.logger.info(f"总评论数: {self.stats['total_comments']}")
         self.logger.info(f"耗时: {duration}")
@@ -429,8 +582,9 @@ class DynamicsCrawler:
 class BilibiliDynamicManager:
     """Bilibili动态管理器 - 整合动态相关功能"""
     
-    def __init__(self, download_dir: str = "downloads", max_concurrent: int = 3, 
-                 credential: Optional[Credential] = None, max_comments: int = -1):
+    def __init__(self, download_dir: str = "downloads", max_concurrent: int = 1, 
+                 credential: Optional[Credential] = None, max_comments: int = -1,
+                 base_wait_time: float = 0.1, full_sub_comments: bool = False):
         """
         初始化动态管理器
         
@@ -439,6 +593,8 @@ class BilibiliDynamicManager:
             max_concurrent: 最大并发数
             credential: B站登录凭据
             max_comments: 每个动态最大评论数限制 (-1 表示无限制)
+            base_wait_time: 请求之间的基本等待时间（秒，默认0.1秒）
+            full_sub_comments: 是否获取完整楼中楼评论 (False=仅使用内嵌楼中楼, True=单独获取完整楼中楼)
         """
         self.download_dir = Path(download_dir)
         self.credential = credential
@@ -447,7 +603,9 @@ class BilibiliDynamicManager:
         self.dynamics_crawler = DynamicsCrawler(
             credential=credential, 
             max_concurrent=max_concurrent,
-            max_comments_per_dynamic=max_comments
+            max_comments_per_dynamic=max_comments,
+            base_wait_time=base_wait_time,
+            full_sub_comments=full_sub_comments
         )
         # 使用统一的日志配置
         self.logger = get_logger('DynamicManager')
@@ -487,9 +645,9 @@ class BilibiliDynamicManager:
             print(f"📦 正在获取最近 {limit} 条动态...")
             
             while len(all_dynamics) < limit:
-                dynamics_data = await user_obj.get_dynamics_new(offset=offset)
+                dynamics_data = await self.dynamics_crawler._get_dynamics_page(user_obj, offset)
                 
-                if not dynamics_data.get('items'):
+                if not dynamics_data or not dynamics_data.get('items'):
                     break
                 
                 dynamics_list = dynamics_data['items']
@@ -513,7 +671,7 @@ class BilibiliDynamicManager:
                 page += 1
                 
                 # 避免请求过快
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.1)
                 
                 # 安全限制：最多获取10页
                 if page > 10:
@@ -563,7 +721,7 @@ class BilibiliDynamicManager:
             print(f"❌ 获取用户动态失败: {e}")
     
     async def download_user_dynamics(self, uid: int, include_comments: bool = True, 
-                                   max_comments: int = -1) -> None:
+                                   max_comments: int = -1, start_page: int = 0, total_pages: int = 0) -> None:
         """
         下载用户所有动态和评论
         
@@ -589,7 +747,9 @@ class BilibiliDynamicManager:
             stats = await self.dynamics_crawler.crawl_user_dynamics(
                 uid=uid,
                 save_dir=str(self.download_dir),
-                include_comments=include_comments
+                include_comments=include_comments,
+                start_page=start_page,
+                max_pages=total_pages if total_pages > 0 else None
             )
             
             # 显示结果统计
@@ -604,6 +764,11 @@ class BilibiliDynamicManager:
             self.logger.error(f"下载用户动态失败: {e}")
             print(f"❌ 下载用户动态失败: {e}")
     
+    @api_retry_decorator()
+    async def _get_dynamic_info(self, dynamic_obj: Dynamic) -> Dict:
+        """获取单个动态的详细信息"""
+        return await dynamic_obj.get_info()
+
     async def download_single_dynamic(self, dynamic_id: int, include_comments: bool = True) -> None:
         """
         下载单个动态和评论
@@ -617,7 +782,7 @@ class BilibiliDynamicManager:
             dynamic_obj = Dynamic(dynamic_id, credential=self.credential)
             
             # 获取动态详细信息
-            dynamic_info = await dynamic_obj.get_info()
+            dynamic_info = await self._get_dynamic_info(dynamic_obj)
             
             if not dynamic_info:
                 print(f"❌ 无法获取动态 {dynamic_id} 的信息")
