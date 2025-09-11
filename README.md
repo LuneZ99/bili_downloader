@@ -88,6 +88,7 @@ cp credentials.json.example credentials.json
      - `bili_jct`
      - `buvid3`
      - `DedeUserID`
+     - `ac_time_value`（可选，用于增强认证）
 
 3. **编辑配置文件**
 ```json
@@ -95,7 +96,8 @@ cp credentials.json.example credentials.json
   "SESSDATA": "你的SESSDATA值",
   "bili_jct": "你的bili_jct值", 
   "buvid3": "你的buvid3值",
-  "DedeUserID": "你的DedeUserID值"
+  "DedeUserID": "你的DedeUserID值",
+  "ac_time_value": "你的ac_time_value值"
 }
 ```
 
@@ -105,6 +107,7 @@ export BILI_SESSDATA="你的SESSDATA值"
 export BILI_JCT="你的bili_jct值"
 export BILI_BUVID3="你的buvid3值"
 export BILI_DEDEUSERID="你的DedeUserID值"
+export BILI_AC_TIME_VALUE="你的ac_time_value值"
 ```
 
 ### 🚀 使用方法
