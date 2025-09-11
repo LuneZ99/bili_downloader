@@ -11,6 +11,7 @@ Bili Downloader 是一个功能强大的 Bilibili 视频下载工具，支持高
 - 👤 **用户视频批量下载** - 下载指定用户的所有投稿视频
 - 📚 **合集下载** - 支持下载完整的视频合集/系列
 - 📋 **视频列表查看** - 浏览用户视频和合集信息
+- 📝 **弹幕下载** - 默认同时下载视频弹幕，支持普通弹幕和特殊弹幕(BAS)
 - 🔐 **登录支持** - 支持登录获取高画质视频
 - ⚡ **并发下载** - 可调节的多线程并发下载
 - 🎨 **自动画质选择** - 根据账号权限自动选择最佳画质
@@ -124,17 +125,20 @@ python bili_cli.py --show-formats
 # 列出用户所有视频
 python bili_cli.py list-videos 477317922
 
-# 下载单个视频
+# 下载单个视频（默认包含弹幕）
 python bili_cli.py download-video BV1FQbPzKEA8
+
+# 下载视频但不下载弹幕
+python bili_cli.py download-video BV1FQbPzKEA8 --no-danmaku
 
 # 下载单个视频到指定目录
 python bili_cli.py download-video BV1FQbPzKEA8 --dir /path/to/download
 
-# 下载用户所有视频
+# 下载用户所有视频（默认包含弹幕）
 python bili_cli.py download-user 477317922
 
-# 指定并发数下载用户视频
-python bili_cli.py download-user 477317922 --concurrent 5
+# 下载用户视频但不含弹幕，指定并发数
+python bili_cli.py download-user 477317922 --concurrent 3 --no-danmaku
 ```
 
 #### 合集相关操作
@@ -146,8 +150,11 @@ python bili_cli.py list-series 477317922
 # 列出合集中的所有视频
 python bili_cli.py list-series-videos 123456
 
-# 下载整个合集
+# 下载整个合集（默认包含弹幕）
 python bili_cli.py download-series 123456
+
+# 下载合集但不含弹幕
+python bili_cli.py download-series 123456 --no-danmaku
 
 # 指定合集类型下载
 python bili_cli.py download-series 123456 --type season
@@ -168,14 +175,26 @@ python bili_cli.py download-dynamics 477317922
 # 下载动态但不包含评论
 python bili_cli.py download-dynamics 477317922 --no-comments
 
-# 限制每个动态最多500条评论，使用5个并发
-python bili_cli.py download-dynamics 477317922 --max-comments 500 --concurrent 5
+# 限制每个动态最多500条评论，使用3个并发
+python bili_cli.py download-dynamics 477317922 --max-comments 500 --concurrent 3
+
+# 获取完整楼中楼评论（更慢但更完整）
+python bili_cli.py download-dynamics 477317922 --full-sub-comments
+
+# 自定义请求间隔时间（秒），默认0.1秒
+python bili_cli.py download-dynamics 477317922 --wait-time 0.5
+
+# 分页下载：从第2页开始，只下载5页动态
+python bili_cli.py download-dynamics 477317922 --start-page 2 --total-pages 5
 
 # 下载单个动态和评论
 python bili_cli.py download-single-dynamic 123456789
 
 # 下载单个动态但不包含评论
 python bili_cli.py download-single-dynamic 123456789 --no-comments
+
+# 下载单个动态使用完整楼中楼评论
+python bili_cli.py download-single-dynamic 123456789 --full-sub-comments
 ```
 
 #### 高级选项
@@ -188,7 +207,7 @@ python bili_cli.py download-video BV1FQbPzKEA8 --credentials credentials.json
 python bili_cli.py download-video BV1FQbPzKEA8 --quality 1080p60
 
 # 组合使用多个选项
-python bili_cli.py download-user 477317922 --dir ./downloads --concurrent 3 --credentials credentials.json --quality 4k
+python bili_cli.py download-user 477317922 --dir ./downloads --concurrent 2 --credentials credentials.json --quality 4k
 ```
 
 ### 📁 项目结构
@@ -204,9 +223,14 @@ bili_downloader/
 ├── README.md               # 项目说明文档
 ├── CLAUDE.md               # 开发指南
 └── downloads/              # 默认下载目录
+    ├── single_videos/      # 单独下载的视频 🆕
+    │   ├── 视频.mp4        # 视频文件
+    │   └── 视频_弹幕.jsonl # 弹幕文件 🆕
     ├── 用户名_UID/         # 用户数据目录
     │   ├── dynamics/       # 动态和评论数据 🆕
-    │   └── videos/         # 视频文件
+    │   └── videos/         # 视频文件和弹幕
+    │       ├── 视频.mp4    # 视频文件
+    │       └── 视频_弹幕.jsonl # 弹幕文件 🆕
     └── single_dynamics/    # 单个动态下载 🆕
 ```
 
@@ -224,6 +248,29 @@ bili_downloader/
 | HDR | HDR真彩 | 需要大会员 |
 | 杜比视界 | 杜比视界 | 需要大会员 |
 | 8K | 8K超高清 | 需要大会员 |
+
+### ⚙️ 动态爬取参数说明
+
+#### 楼中楼评论获取策略
+
+本工具提供两种楼中楼评论获取策略：
+
+- **默认策略（推荐）**: 使用根评论响应中内嵌的楼中楼数据
+  - ✅ **速度快**: 无需额外API请求
+  - ✅ **效率高**: 减少服务器负载
+  - ⚠️ **部分楼中楼**: 通常只包含前几条楼中楼回复
+
+- **完整策略**: 使用 `--full-sub-comments` 参数单独获取每个根评论的所有楼中楼
+  - ✅ **数据完整**: 获取所有楼中楼回复
+  - ✅ **无遗漏**: 确保评论数据的完整性
+  - ⚠️ **速度较慢**: 需要大量额外API请求
+  - ⚠️ **易被限流**: 频繁请求可能触发反爬机制
+
+#### 其他重要参数
+
+- `--wait-time`: 控制请求间隔（默认0.1秒），可适当增加避免被限流
+- `--start-page` / `--total-pages`: 支持分页下载，便于增量更新或测试
+- `--max-comments`: 限制每个动态的评论数量，避免超大动态消耗过多时间
 
 ### 📊 动态数据格式
 
@@ -263,6 +310,49 @@ bili_downloader/
   }
 }
 ```
+
+### 📝 弹幕数据格式
+
+视频弹幕以 JSONL 格式保存（每行一个 JSON 对象），包含完整的原始弹幕数据：
+
+```jsonl
+{"type": "regular", "text": "弹幕内容", "dm_time": 123.45, "send_time": 1640995200, "crc32_id": "abc123", "color": "ffffff", "weight": 5, "id_": 12345, "id_str": "12345", "action": "", "mode": 1, "font_size": 25, "is_sub": false, "pool": 0, "attr": 0, "uid": 123456}
+{"type": "regular", "text": "另一条弹幕", "dm_time": 150.20, "send_time": 1640995230, "crc32_id": "def456", "color": "ff6699", "weight": 3, "id_": 12346, "id_str": "12346", "action": "", "mode": 1, "font_size": 25, "is_sub": false, "pool": 0, "attr": 0, "uid": -1}
+{"type": "special", "content": "BAS特殊弹幕内容", "id_": 54321, "id_str": "54321", "mode": 9, "pool": 2}
+```
+
+#### 弹幕字段说明
+
+**普通弹幕 (type: "regular")**:
+- `text`: 弹幕文本内容
+- `dm_time`: 弹幕在视频中的时间位置（秒）
+- `send_time`: 弹幕发送的时间戳
+- `crc32_id`: 发送者UID的CRC32哈希值
+- `color`: 弹幕颜色（十六进制，"special"表示大会员专属颜色）
+- `weight`: 弹幕在弹幕列表显示的权重
+- `id_`: 弹幕ID（数字）
+- `id_str`: 弹幕ID（字符串）
+- `action`: 弹幕动作（用途待明确）
+- `mode`: 弹幕类型 (1=滚动, 4=底部, 5=顶部, 6=逆向, 7=高级, 8=代码, 9=BAS)
+- `font_size`: 字体大小 (12/16/18/25/36/45/64)
+- `is_sub`: 是否为字幕弹幕
+- `pool`: 弹幕池 (0=普通, 1=字幕, 2=特殊)
+- `attr`: 弹幕属性（用途待明确）
+- `uid`: 发送者真实UID（当可获取时，否则为-1）
+
+**特殊弹幕 (type: "special")**:
+- `content`: 特殊弹幕内容
+- `id_`: 弹幕ID（数字）
+- `id_str`: 弹幕ID（字符串）
+- `mode`: 弹幕模式（通常为9=BAS弹幕）
+- `pool`: 弹幕池（通常为2=特殊池）
+
+> **注意**: 本工具保存弹幕对象的所有可用属性，确保数据完整性。如B站API增加新字段，也会自动包含在内。
+
+#### 文件命名规则
+
+- **单P视频**: `视频标题_弹幕.jsonl`
+- **多P视频**: `视频标题_P01_分P标题_弹幕.jsonl`, `视频标题_P02_分P标题_弹幕.jsonl` ...
 
 ### 📜 许可证
 
