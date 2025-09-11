@@ -33,16 +33,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
-  # 视频相关
+  # 视频相关（默认下载弹幕）
   %(prog)s list-videos 477317922                         # 列出用户视频
-  %(prog)s download-video BV1FQbPzKEA8                   # 下载单个视频
-  %(prog)s download-video BV1FQbPzKEA8 --dir /tmp        # 下载到指定目录
-  %(prog)s download-user 477317922                       # 下载用户所有视频
+  %(prog)s download-video BV1FQbPzKEA8                   # 下载单个视频和弹幕
+  %(prog)s download-video BV1FQbPzKEA8 --no-danmaku      # 下载视频不含弹幕
+  %(prog)s download-user 477317922                       # 下载用户所有视频和弹幕
   
   # 合集相关
   %(prog)s list-series 477317922                         # 列出用户所有合集
   %(prog)s list-series-videos 123456                     # 列出合集中的视频
-  %(prog)s download-series 123456 --dir /tmp             # 下载整个合集
+  %(prog)s download-series 123456 --no-danmaku           # 下载整个合集不含弹幕
   
   # 动态相关
   %(prog)s list-dynamics 477317922                       # 列出用户最近100条动态
@@ -70,12 +70,14 @@ def main():
     parser_download = subparsers.add_parser('download-video', help='下载单个视频')
     parser_download.add_argument('bvid', help='视频BVID')
     parser_download.add_argument('--dir', '-d', default='downloads', help='下载目录 (默认: downloads)')
+    parser_download.add_argument('--no-danmaku', action='store_true', help='不下载弹幕 (默认下载弹幕)')
     
     # download-user 子命令
     parser_download_all = subparsers.add_parser('download-user', help='下载用户所有视频')
     parser_download_all.add_argument('uid', type=int, help='用户UID')
     parser_download_all.add_argument('--dir', '-d', default='downloads', help='下载目录 (默认: downloads)')
-    parser_download_all.add_argument('--concurrent', '-c', type=int, default=3, help='最大并发下载数 (默认: 3)')
+    parser_download_all.add_argument('--concurrent', '-c', type=int, default=1, help='最大并发下载数 (默认: 1)')
+    parser_download_all.add_argument('--no-danmaku', action='store_true', help='不下载弹幕 (默认下载弹幕)')
     
     # list-series 子命令
     parser_list_collections = subparsers.add_parser('list-series', help='列出用户所有合集')
@@ -91,7 +93,8 @@ def main():
     parser_download_collection.add_argument('series_id', type=int, help='合集ID')
     parser_download_collection.add_argument('--type', '-t', default='auto', choices=['auto', 'series', 'season'], help='合集类型 (默认: auto自动检测)')
     parser_download_collection.add_argument('--dir', '-d', default='downloads', help='下载目录 (默认: downloads)')
-    parser_download_collection.add_argument('--concurrent', '-c', type=int, default=3, help='最大并发下载数 (默认: 3)')
+    parser_download_collection.add_argument('--concurrent', '-c', type=int, default=1, help='最大并发下载数 (默认: 1)')
+    parser_download_collection.add_argument('--no-danmaku', action='store_true', help='不下载弹幕 (默认下载弹幕)')
     
     # list-dynamics 子命令
     parser_list_dynamics = subparsers.add_parser('list-dynamics', help='列出用户最近的动态')
@@ -102,15 +105,32 @@ def main():
     parser_download_dynamics = subparsers.add_parser('download-dynamics', help='下载用户所有动态和评论')
     parser_download_dynamics.add_argument('uid', type=int, help='用户UID')
     parser_download_dynamics.add_argument('--dir', '-d', default='downloads', help='下载目录 (默认: downloads)')
-    parser_download_dynamics.add_argument('--concurrent', '-c', type=int, default=3, help='最大并发下载数 (默认: 3)')
+    parser_download_dynamics.add_argument('--concurrent', '-c', type=int, default=1, help='最大并发下载数 (默认: 1)')
     parser_download_dynamics.add_argument('--no-comments', action='store_true', help='不包含评论 (默认包含)')
     parser_download_dynamics.add_argument('--max-comments', type=int, default=-1, help='每个动态最大评论数限制 (-1 表示无限制, 默认: -1)')
+    parser_download_dynamics.add_argument('--wait-time', type=float, default=5.0, help='请求之间的基本等待时间（秒）')
+    parser_download_dynamics.add_argument('--full-sub-comments', action='store_true', 
+                                        help='获取完整楼中楼评论 (默认使用内嵌楼中楼，速度更快)')
+    parser_download_dynamics.add_argument(
+        "--start-page",
+        type=int,
+        default=0,
+        help="起始页面 (0表示从最新动态开始)",
+    )
+    parser_download_dynamics.add_argument(
+        "--total-pages",
+        type=int,
+        default=0,
+        help="总共爬取页面数 (0表示爬取所有页面)",
+    )
     
     # download-single-dynamic 子命令
     parser_download_single_dynamic = subparsers.add_parser('download-single-dynamic', help='下载单个动态和评论')
     parser_download_single_dynamic.add_argument('dynamic_id', type=int, help='动态ID')
     parser_download_single_dynamic.add_argument('--dir', '-d', default='downloads', help='下载目录 (默认: downloads)')
     parser_download_single_dynamic.add_argument('--no-comments', action='store_true', help='不包含评论 (默认包含)')
+    parser_download_single_dynamic.add_argument('--full-sub-comments', action='store_true', 
+                                              help='获取完整楼中楼评论 (默认使用内嵌楼中楼，速度更快)')
     
     args = parser.parse_args()
     
@@ -152,7 +172,7 @@ def main():
         # 创建视频管理器
         video_manager = BilibiliVideoManager(
             download_dir=getattr(args, 'dir', 'downloads'),
-            max_concurrent=getattr(args, 'concurrent', 3),
+            max_concurrent=getattr(args, 'concurrent', 1),
             credential=credential,
             preferred_quality=getattr(args, 'quality', 'auto')
         )
@@ -160,32 +180,39 @@ def main():
         # 创建动态管理器
         dynamic_manager = BilibiliDynamicManager(
             download_dir=getattr(args, 'dir', 'downloads'),
-            max_concurrent=getattr(args, 'concurrent', 3),
+            max_concurrent=getattr(args, 'concurrent', 1),
             credential=credential,
-            max_comments=getattr(args, 'max_comments', -1)
+            max_comments=getattr(args, 'max_comments', -1),
+            base_wait_time=getattr(args, 'wait_time', 5.0),
+            full_sub_comments=getattr(args, 'full_sub_comments', False)
         )
         
         # 执行命令
         if args.command == 'list-videos':
             asyncio.run(video_manager.list_user_videos(args.uid))
         elif args.command == 'download-video':
-            asyncio.run(video_manager.download_single_video(args.bvid))
+            download_danmaku = not args.no_danmaku
+            asyncio.run(video_manager.download_single_video(args.bvid, download_danmaku=download_danmaku))
         elif args.command == 'download-user':
-            asyncio.run(video_manager.download_user_videos(args.uid))
+            download_danmaku = not args.no_danmaku
+            asyncio.run(video_manager.download_user_videos(args.uid, download_danmaku=download_danmaku))
         elif args.command == 'list-series':
             asyncio.run(video_manager.list_user_collections(args.uid))
         elif args.command == 'list-series-videos':
             asyncio.run(video_manager.list_collection_videos(args.series_id, args.type))
         elif args.command == 'download-series':
-            asyncio.run(video_manager.download_collection_videos(args.series_id, args.type))
+            download_danmaku = not args.no_danmaku
+            asyncio.run(video_manager.download_collection_videos(args.series_id, args.type, download_danmaku=download_danmaku))
         elif args.command == 'list-dynamics':
             asyncio.run(dynamic_manager.list_user_dynamics(args.uid, args.limit))
         elif args.command == 'download-dynamics':
             include_comments = not args.no_comments
             asyncio.run(dynamic_manager.download_user_dynamics(
-                args.uid, 
+                args.uid,
                 include_comments=include_comments,
-                max_comments=args.max_comments
+                max_comments=args.max_comments,
+                start_page=args.start_page,
+                total_pages=args.total_pages
             ))
         elif args.command == 'download-single-dynamic':
             include_comments = not args.no_comments
