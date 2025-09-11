@@ -33,19 +33,20 @@ from utils import get_logger, api_retry_decorator
 class VideoDownloader:
     """B站视频下载器核心类"""
     
-    def __init__(self, credential: Optional[Credential] = None, preferred_quality: str = "auto"):
+    def __init__(self, credential: Optional[Credential] = None, preferred_quality: str = "auto", log_file: str = "logs.txt"):
         """
         初始化下载器
         
         Args:
             credential: B站登录凭据(用于高画质下载)
             preferred_quality: 首选画质(auto/1080p60/4k/8k等)
+            log_file: 日志文件路径
         """
         self.credential = credential
         self.preferred_quality = preferred_quality
         
         # 使用统一的日志配置
-        self.logger = get_logger('VideoDownloader')
+        self.logger = get_logger('VideoDownloader', log_file)
         
         # 输出登录状态和画质信息
         if self.credential:
@@ -55,18 +56,19 @@ class VideoDownloader:
         self.logger.info(f"🎬 画质偏好: {self.preferred_quality}")
     
     @staticmethod
-    def load_credentials(config_path: Optional[str] = None) -> Optional[Credential]:
+    def load_credentials(config_path: Optional[str] = None, log_file: str = "logs.txt") -> Optional[Credential]:
         """
         从配置文件或环境变量加载登录凭据
         
         Args:
             config_path: 配置文件路径 (JSON格式)
+            log_file: 日志文件路径
             
         Returns:
             Credential对象，如果无法加载则返回None
         """
         # 使用统一的日志配置
-        logger = get_logger('CredentialLoader')
+        logger = get_logger('CredentialLoader', log_file)
         
         # 记录凭据加载开始
         if config_path:
@@ -570,7 +572,7 @@ class BilibiliVideoManager:
     """Bilibili视频管理器 - 整合视频、用户、合集相关功能"""
     
     def __init__(self, download_dir: str = "downloads", max_concurrent: int = 1, 
-                 credential: Optional[Credential] = None, preferred_quality: str = "auto"):
+                 credential: Optional[Credential] = None, preferred_quality: str = "auto", log_file: str = "logs.txt"):
         """
         初始化管理器
         
@@ -579,6 +581,7 @@ class BilibiliVideoManager:
             max_concurrent: 最大并发下载数
             credential: B站登录凭据(用于高画质下载)
             preferred_quality: 首选画质(auto/1080p60/4k/8k等)
+            log_file: 日志文件路径
         """
         self.download_dir = Path(download_dir)
         self.max_concurrent = max_concurrent
@@ -586,9 +589,9 @@ class BilibiliVideoManager:
         self.credential = credential
         
         # 创建视频下载器
-        self.downloader = VideoDownloader(credential=credential, preferred_quality=preferred_quality)
+        self.downloader = VideoDownloader(credential=credential, preferred_quality=preferred_quality, log_file=log_file)
         # 使用统一的日志配置
-        self.logger = get_logger('VideoManager')
+        self.logger = get_logger('VideoManager', log_file)
     
     @api_retry_decorator()
     async def get_user_info(self, uid: int) -> Dict:

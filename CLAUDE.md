@@ -102,7 +102,7 @@ results = await asyncio.gather(*tasks, return_exceptions=True)
 - Quality mapping: 360P(16) → 480P(32) → 720P(64) → 1080P(80) → 1080P+(112) → 1080P60(116) → 4K(120) → HDR(125) → 8K(127)
 
 ### Error Handling Patterns
-- Comprehensive logging via Python logging module to `bili_downloader.log`
+- Comprehensive logging via Python logging module to `logs.txt` (configurable via `--log-file`)
 - Exception handling with graceful degradation
 - Progress reporting during downloads with percentage completion
 

@@ -209,8 +209,11 @@ python bili_cli.py download-video BV1FQbPzKEA8 --credentials credentials.json
 # 指定画质偏好
 python bili_cli.py download-video BV1FQbPzKEA8 --quality 1080p60
 
+# 自定义日志文件路径
+python bili_cli.py download-video BV1FQbPzKEA8 --log-file custom.log
+
 # 组合使用多个选项
-python bili_cli.py download-user 477317922 --dir ./downloads --concurrent 2 --credentials credentials.json --quality 4k
+python bili_cli.py download-user 477317922 --dir ./downloads --concurrent 2 --credentials credentials.json --quality 4k --log-file bili_downloader.log
 ```
 
 ### 📁 项目结构

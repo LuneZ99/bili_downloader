@@ -57,6 +57,8 @@ def main():
     parser.add_argument('--credentials', '-auth', help='B站登录凭据配置文件路径 (JSON格式)')
     parser.add_argument('--quality', '-q', default='auto', 
                       help='画质偏好 (auto/1080p/1080p60/4k/8k等, 默认: auto)')
+    parser.add_argument('--log-file', default='logs.txt',
+                      help='日志文件路径 (默认: logs.txt)')
     parser.add_argument('--show-formats', action='store_true', 
                       help='显示可用的画质格式信息')
     
@@ -161,7 +163,7 @@ def main():
     # 加载登录凭据
     credential = None
     if args.credentials:
-        credential = VideoDownloader.load_credentials(args.credentials)
+        credential = VideoDownloader.load_credentials(args.credentials, args.log_file)
         if not credential:
             print("❌ 凭据加载失败，将使用普通画质下载")
     
@@ -174,7 +176,8 @@ def main():
             download_dir=getattr(args, 'dir', 'downloads'),
             max_concurrent=getattr(args, 'concurrent', 1),
             credential=credential,
-            preferred_quality=getattr(args, 'quality', 'auto')
+            preferred_quality=getattr(args, 'quality', 'auto'),
+            log_file=args.log_file
         )
         
         # 创建动态管理器
@@ -184,7 +187,8 @@ def main():
             credential=credential,
             max_comments=getattr(args, 'max_comments', -1),
             base_wait_time=getattr(args, 'wait_time', 5.0),
-            full_sub_comments=getattr(args, 'full_sub_comments', False)
+            full_sub_comments=getattr(args, 'full_sub_comments', False),
+            log_file=args.log_file
         )
         
         # 执行命令

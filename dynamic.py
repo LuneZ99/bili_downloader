@@ -29,7 +29,7 @@ class DynamicsCrawler:
     
     def __init__(self, credential: Optional[Credential] = None, max_concurrent: int = 1, 
                  max_comments_per_dynamic: int = -1, base_wait_time: float = 0.1, 
-                 full_sub_comments: bool = False):
+                 full_sub_comments: bool = False, log_file: str = "logs.txt"):
         """
         初始化动态爬取器
         
@@ -39,6 +39,7 @@ class DynamicsCrawler:
             max_comments_per_dynamic: 每个动态最大评论数限制 (-1 表示无限制)
             base_wait_time: 请求之间的基本等待时间（秒，默认0.1秒）
             full_sub_comments: 是否获取完整楼中楼评论 (False=仅使用内嵌楼中楼, True=单独获取完整楼中楼)
+            log_file: 日志文件路径
         """
         self.credential = credential or Credential()
         self.max_concurrent = max_concurrent
@@ -49,7 +50,7 @@ class DynamicsCrawler:
         self.current_wait_time = base_wait_time
         
         # 使用统一的日志配置
-        self.logger = get_logger('DynamicsCrawler')
+        self.logger = get_logger('DynamicsCrawler', log_file)
         
         # 统计信息
         self.stats = {
@@ -584,7 +585,7 @@ class BilibiliDynamicManager:
     
     def __init__(self, download_dir: str = "downloads", max_concurrent: int = 1, 
                  credential: Optional[Credential] = None, max_comments: int = -1,
-                 base_wait_time: float = 0.1, full_sub_comments: bool = False):
+                 base_wait_time: float = 0.1, full_sub_comments: bool = False, log_file: str = "logs.txt"):
         """
         初始化动态管理器
         
@@ -595,6 +596,7 @@ class BilibiliDynamicManager:
             max_comments: 每个动态最大评论数限制 (-1 表示无限制)
             base_wait_time: 请求之间的基本等待时间（秒，默认0.1秒）
             full_sub_comments: 是否获取完整楼中楼评论 (False=仅使用内嵌楼中楼, True=单独获取完整楼中楼)
+            log_file: 日志文件路径
         """
         self.download_dir = Path(download_dir)
         self.credential = credential
@@ -605,10 +607,11 @@ class BilibiliDynamicManager:
             max_concurrent=max_concurrent,
             max_comments_per_dynamic=max_comments,
             base_wait_time=base_wait_time,
-            full_sub_comments=full_sub_comments
+            full_sub_comments=full_sub_comments,
+            log_file=log_file
         )
         # 使用统一的日志配置
-        self.logger = get_logger('DynamicManager')
+        self.logger = get_logger('DynamicManager', log_file)
     
     async def get_user_info(self, uid: int) -> Dict:
         """获取用户信息"""
