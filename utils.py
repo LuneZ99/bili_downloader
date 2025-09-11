@@ -7,9 +7,67 @@
 - 跨平台编码处理
 """
 
+import asyncio
 import logging
 import sys
+import traceback
+from functools import wraps
 from typing import Optional
+
+from bilibili_api.exceptions import ResponseCodeException, NetworkException
+
+
+def api_retry_decorator(max_retries=5, initial_wait_time=3):
+    """
+    Bilibili API 请求重试装饰器
+
+    Args:
+        max_retries: 最大重试次数
+        initial_wait_time: 初始等待时间（秒）
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(self, *args, **kwargs):
+            retries = max_retries
+            current_wait_time = initial_wait_time
+
+            while retries > 0:
+                try:
+                    return await func(self, *args, **kwargs)
+                except (ResponseCodeException, NetworkException) as e:
+                    if "-352" in str(e):
+                        self.logger.warning("Credential expired (-352). Refreshing...")
+                        if hasattr(self, 'credential') and self.credential and hasattr(self.credential, 'ac_time_value'):
+                            try:
+                                await self.credential.refresh()
+                                self.logger.info("Credential refreshed successfully. Retrying request...")
+                                continue  # 立即重试
+                            except Exception as refresh_error:
+                                self.logger.error(f"Failed to refresh credential: {refresh_error}")
+                                self.logger.error(traceback.format_exc())
+                                break  # 刷新失败，中断重试
+                        else:
+                            self.logger.error("Credential expired (-352), but cannot refresh without 'ac_time_value'. Please update your credentials.")
+                            break
+                    elif "412" in str(e):
+                        self.logger.warning(f"Request rate-limited (412). Retrying in {current_wait_time} seconds... ({retries-1} retries left)")
+                        await asyncio.sleep(current_wait_time)
+                        current_wait_time *= 2  # 指数退避
+                        retries -= 1
+                    else:
+                        self.logger.error(f"An unexpected API error occurred: {e}")
+                        self.logger.error(traceback.format_exc())
+                        break  # 其他错误，中断重试
+                except Exception as e:
+                    self.logger.error(f"An unexpected error occurred in decorated function: {e}")
+                    self.logger.error(traceback.format_exc())
+                    break  # 未知错误，中断重试
+            
+            # 如果所有重试都失败了
+            self.logger.error(f"Function {func.__name__} failed after {max_retries} retries.")
+            return None
+        return wrapper
+    return decorator
 
 
 def setup_logging(log_file: str = 'logs.txt', logger_name: Optional[str] = None) -> logging.Logger:
