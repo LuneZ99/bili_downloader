@@ -230,16 +230,16 @@ bili_downloader/
     │   └── 【视频标题】_BVID/     # 每个视频专用文件夹
     │       ├── metadata.json      # 完整视频元数据
     │       ├── P01_分P标题.mp4   # 分P视频文件
-    │       ├── P01_分P标题_弹幕.jsonl # 分P弹幕文件
+    │       ├── P01_分P标题_danmaku.jsonl # 分P弹幕文件
     │       ├── P02_分P标题.mp4   # (多P视频)
-    │       └── P02_分P标题_弹幕.jsonl # (多P视频)
+    │       └── P02_分P标题_danmaku.jsonl # (多P视频)
     ├── 用户名_UID/               # 用户数据目录
     │   ├── dynamics/             # 动态和评论数据
     │   └── videos/               # 用户视频下载目录
     │       └── 【视频标题】_BVID/ # 每个视频专用文件夹
     │           ├── metadata.json  # 完整视频元数据
     │           ├── P01_分P标题.mp4 # 分P视频文件
-    │           └── P01_分P标题_弹幕.jsonl # 分P弹幕文件
+    │           └── P01_分P标题_danmaku.jsonl # 分P弹幕文件
     └── single_dynamics/          # 单个动态下载
 ```
 
@@ -361,7 +361,7 @@ bili_downloader/
 #### 文件命名规则
 
 - **视频文件**: `P{序号:02d}_{分P标题}.mp4` (如 `P01_第一集.mp4`)
-- **弹幕文件**: `P{序号:02d}_{分P标题}_弹幕.jsonl` (如 `P01_第一集_弹幕.jsonl`)
+- **弹幕文件**: `P{序号:02d}_{分P标题}_danmaku.jsonl` (如 `P01_第一集_danmaku.jsonl`)
 - **元数据文件**: `metadata.json` (包含完整视频和分P信息)
 
 ### 📊 元数据格式
