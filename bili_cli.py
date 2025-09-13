@@ -28,6 +28,13 @@ from dynamic import BilibiliDynamicManager
 
 def main():
     """主函数"""
+    # 修复Windows控制台编码问题
+    import sys
+    if sys.platform.startswith('win'):
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    
     parser = argparse.ArgumentParser(
         description='Bilibili视频管理CLI工具',
         formatter_class=argparse.RawDescriptionHelpFormatter,

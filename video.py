@@ -15,6 +15,9 @@ import json
 import logging
 import time
 import traceback
+import shutil
+import platform
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, List
@@ -421,9 +424,47 @@ class VideoDownloader:
                 
                 if download_success:
                     # 使用 ffmpeg 转换格式
-                    result = os.system(f'ffmpeg -i "{temp_file}" -c copy "{video_path}" -y > /dev/null 2>&1')
-                    temp_file.unlink(missing_ok=True)
-                    success = (result == 0)
+                    ffmpeg_path = self.get_ffmpeg_path()
+                    if ffmpeg_path:
+                        try:
+                            cmd_args = [
+                                ffmpeg_path,
+                                '-i', str(temp_file),
+                                '-c', 'copy',
+                                str(video_path),
+                                '-y'
+                            ]
+                            
+                            result = subprocess.run(cmd_args, 
+                                                  capture_output=True, 
+                                                  text=True, 
+                                                  encoding='utf-8',
+                                                  errors='ignore',
+                                                  timeout=300)
+                            
+                            if result.returncode == 0:
+                                success = True
+                            else:
+                                self.logger.error(f"P{page_index+1} FFmpeg格式转换失败:")
+                                self.logger.error(f"返回码: {result.returncode}")
+                                self.logger.error(f"stderr: {result.stderr}")
+                                self.logger.error(f"stdout: {result.stdout}")
+                                print(f"❌ P{page_index+1:02d} FFmpeg格式转换失败 (返回码: {result.returncode})")
+                                success = False
+                                
+                        except subprocess.TimeoutExpired:
+                            self.logger.error(f"P{page_index+1} FFmpeg转换超时")
+                            print(f"❌ P{page_index+1:02d} FFmpeg转换超时")
+                            success = False
+                        except Exception as e:
+                            self.logger.error(f"P{page_index+1} FFmpeg转换错误: {e}")
+                            print(f"❌ P{page_index+1:02d} FFmpeg转换错误: {e}")
+                            success = False
+                        finally:
+                            temp_file.unlink(missing_ok=True)
+                    else:
+                        print(f"❌ 未找到ffmpeg，无法转换视频格式")
+                        success = False
             else:
                 # DASH 流 - 音视频分离
                 video_temp = video_folder / f"temp_video_P{page_index+1:02d}.m4s"
@@ -438,18 +479,62 @@ class VideoDownloader:
                 
                 if video_success:
                     # 使用 ffmpeg 合并音视频
-                    if len(streams) > 1 and audio_success:
-                        cmd = f'ffmpeg -i "{video_temp}" -i "{audio_temp}" -c copy "{video_path}" -y > /dev/null 2>&1'
+                    ffmpeg_path = self.get_ffmpeg_path()
+                    
+                    if ffmpeg_path:
+                        try:
+                            if len(streams) > 1 and audio_success:
+                                # 合并音视频流
+                                cmd_args = [
+                                    ffmpeg_path,
+                                    '-i', str(video_temp),
+                                    '-i', str(audio_temp),
+                                    '-c', 'copy',
+                                    str(video_path),
+                                    '-y'
+                                ]
+                            else:
+                                # 只有视频流
+                                cmd_args = [
+                                    ffmpeg_path,
+                                    '-i', str(video_temp),
+                                    '-c', 'copy',
+                                    str(video_path),
+                                    '-y'
+                                ]
+                            
+                            result = subprocess.run(cmd_args, 
+                                                  capture_output=True, 
+                                                  text=True, 
+                                                  encoding='utf-8',
+                                                  errors='ignore',
+                                                  timeout=300)
+                            
+                            if result.returncode == 0:
+                                success = True
+                            else:
+                                self.logger.error(f"P{page_index+1} FFmpeg合并失败:")
+                                self.logger.error(f"返回码: {result.returncode}")
+                                self.logger.error(f"stderr: {result.stderr}")
+                                self.logger.error(f"stdout: {result.stdout}")
+                                print(f"❌ P{page_index+1:02d} FFmpeg合并失败 (返回码: {result.returncode})")
+                                success = False
+                                
+                        except subprocess.TimeoutExpired:
+                            self.logger.error(f"P{page_index+1} FFmpeg超时")
+                            print(f"❌ P{page_index+1:02d} FFmpeg处理超时")
+                            success = False
+                        except Exception as e:
+                            self.logger.error(f"P{page_index+1} FFmpeg执行错误: {e}")
+                            print(f"❌ P{page_index+1:02d} FFmpeg执行错误: {e}")
+                            success = False
+                        finally:
+                            # 清理临时文件
+                            video_temp.unlink(missing_ok=True)
+                            audio_temp.unlink(missing_ok=True)
                     else:
-                        cmd = f'ffmpeg -i "{video_temp}" -c copy "{video_path}" -y > /dev/null 2>&1'
-                    
-                    result = os.system(cmd)
-                    
-                    # 清理临时文件
-                    video_temp.unlink(missing_ok=True)
-                    audio_temp.unlink(missing_ok=True)
-                    
-                    success = (result == 0)
+                        print(f"❌ 未找到ffmpeg，无法合并音视频")
+                        success = False
             
             # 下载弹幕
             if success and download_danmaku:
@@ -563,9 +648,48 @@ class VideoDownloader:
             self.logger.error(f"保存弹幕失败: {e}")
             return False
     
+    def get_ffmpeg_path(self) -> Optional[str]:
+        """
+        获取ffmpeg可执行文件路径
+        优先检查当前目录，然后检查系统PATH
+        """
+        # 检查当前目录下是否有ffmpeg.exe (Windows) 或 ffmpeg (Linux/Mac)
+        current_dir = Path.cwd()
+        if platform.system() == "Windows":
+            local_ffmpeg = current_dir / "ffmpeg.exe"
+        else:
+            local_ffmpeg = current_dir / "ffmpeg"
+        
+        if local_ffmpeg.exists() and local_ffmpeg.is_file():
+            return str(local_ffmpeg)
+        
+        # 检查系统PATH中的ffmpeg
+        ffmpeg_path = shutil.which("ffmpeg")
+        return ffmpeg_path
+
+    def get_null_device(self) -> str:
+        """获取空设备路径，用于重定向输出"""
+        if platform.system() == "Windows":
+            return "NUL"
+        else:
+            return "/dev/null"
+
     def check_ffmpeg(self) -> bool:
         """检查系统是否安装了ffmpeg"""
-        return os.system("ffmpeg -version > /dev/null 2>&1") == 0
+        ffmpeg_path = self.get_ffmpeg_path()
+        if not ffmpeg_path:
+            return False
+        
+        try:
+            result = subprocess.run([ffmpeg_path, '-version'], 
+                                  capture_output=True, 
+                                  text=True, 
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=10)
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            return False
 
 
 class BilibiliVideoManager:
