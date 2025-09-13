@@ -117,7 +117,7 @@ def main():
     parser_download_dynamics.add_argument('--concurrent', '-c', type=int, default=1, help='最大并发下载数 (默认: 1)')
     parser_download_dynamics.add_argument('--no-comments', action='store_true', help='不包含评论 (默认包含)')
     parser_download_dynamics.add_argument('--max-comments', type=int, default=-1, help='每个动态最大评论数限制 (-1 表示无限制, 默认: -1)')
-    parser_download_dynamics.add_argument('--wait-time', type=float, default=5.0, help='请求之间的基本等待时间（秒）')
+    parser_download_dynamics.add_argument('--wait-time', type=float, default=0.5, help='请求之间的基本等待时间（秒）')
     parser_download_dynamics.add_argument('--full-sub-comments', action='store_true', 
                                         help='获取完整楼中楼评论 (默认使用内嵌楼中楼，速度更快)')
     parser_download_dynamics.add_argument(

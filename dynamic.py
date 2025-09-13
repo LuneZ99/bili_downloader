@@ -47,7 +47,6 @@ class DynamicsCrawler:
         self.full_sub_comments = full_sub_comments
         self.semaphore = asyncio.Semaphore(max_concurrent)
         self.base_wait_time = base_wait_time
-        self.current_wait_time = base_wait_time
         
         # 使用统一的日志配置
         self.logger = get_logger('DynamicsCrawler', log_file)

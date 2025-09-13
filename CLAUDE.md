@@ -148,7 +148,7 @@ results = await asyncio.gather(*tasks, return_exceptions=True)
 - **DYNAMIC_TYPE_WORD**: Text-only dynamics → `CommentResourceType.DYNAMIC`
 
 ### Rate Limiting and Error Handling
-- Built-in delays between requests (0.3-0.5s)
+- Built-in delays between requests (0.1-0.5s, configurable via --wait-time)
 - Automatic retry logic for network failures
 - **Default: Download ALL comments** (max_comments_per_dynamic = -1)
 - Optional comment limits can be set via --max-comments parameter
